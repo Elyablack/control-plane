@@ -1,0 +1,5 @@
+[backup_source]
+vps ansible_connection=local ansible_python_interpreter=/usr/bin/python3
+
+[backup_targets]
+admin ansible_host=100.103.137.9 ansible_user=admin1 ansible_ssh_private_key_file=/home/admin1/.ssh/admin_node_ed25519 ansible_python_interpreter=/usr/bin/python3
