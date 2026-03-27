@@ -1,3 +1,19 @@
-.state/
+# Python
+__pycache__/
+*.pyc
+
+# Logs
+logs/
 *.log
-*.err.log
+
+# Runtime state
+state/
+.state/
+*.db
+
+# Backup artifacts (если вдруг появятся локально)
+*.tar.gz
+*.sha256
+
+# Ansible temp
+*.retry
