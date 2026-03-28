@@ -8,11 +8,12 @@ from urllib.parse import urlparse
 
 from .config import HOST, PORT
 from .executor import execute_action
+from .rules import match_alertmanager_action
 from .state import get_run, init_db, list_runs
 
 
 class ActionRunnerHandler(BaseHTTPRequestHandler):
-    server_version = "action-runner/0.2"
+    server_version = "action-runner/0.4"
 
     def _json_response(self, status: int, payload: dict[str, Any]) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -74,6 +75,7 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
                 data = self._read_json()
                 action = data.get("action")
                 payload = data.get("payload", {})
+
                 if not isinstance(action, str) or not action.strip():
                     raise ValueError("field 'action' is required")
                 if not isinstance(payload, dict):
@@ -81,6 +83,43 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
 
                 result = execute_action(action.strip(), payload, trigger_type="manual")
                 self._json_response(HTTPStatus.OK, result)
+                return
+            except Exception as exc:
+                self._json_response(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": str(exc)},
+                )
+                return
+
+        if path == "/events/alertmanager":
+            try:
+                data = self._read_json()
+                matched = match_alertmanager_action(data)
+
+                if matched is None:
+                    self._json_response(
+                        HTTPStatus.OK,
+                        {
+                            "status": "ignored",
+                            "reason": "no matching rule",
+                        },
+                    )
+                    return
+
+                result = execute_action(
+                    matched["action"],
+                    matched["payload"],
+                    trigger_type="alertmanager",
+                )
+
+                self._json_response(
+                    HTTPStatus.OK,
+                    {
+                        "status": "processed",
+                        "matched_rule": matched,
+                        "result": result,
+                    },
+                )
                 return
             except Exception as exc:
                 self._json_response(
