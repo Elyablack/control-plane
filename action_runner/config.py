@@ -14,3 +14,7 @@ ALLOWED_ACTIONS = {
 }
 
 BACKUP_SCRIPT = "/srv/control-plane/backup/run_backup.sh"
+
+ACTION_COOLDOWNS_SECONDS = {
+    "run_backup": 3600,
+}

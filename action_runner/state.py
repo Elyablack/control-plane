@@ -39,12 +39,33 @@ def init_db() -> None:
         )
 
         conn.execute(
-           """
-           CREATE TABLE IF NOT EXISTS alert_cooldowns (
-               alert_key TEXT PRIMARY KEY,
-               last_executed_at TEXT NOT NULL
-           )
-           """
+            """
+            CREATE TABLE IF NOT EXISTS alert_cooldowns (
+                alert_key TEXT PRIMARY KEY,
+                last_executed_at TEXT NOT NULL
+            )
+            """
+        )
+
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS decisions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source TEXT NOT NULL,
+                alertname TEXT,
+                fingerprint TEXT,
+                severity TEXT,
+                instance TEXT,
+                job TEXT,
+                status TEXT,
+                summary TEXT,
+                decision TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                action TEXT,
+                run_id INTEGER,
+                created_at TEXT NOT NULL
+            )
+            """
         )
 
         conn.commit()
@@ -94,22 +115,6 @@ def finish_run(
         conn.commit()
 
 
-def _row_to_run(row: tuple) -> dict:
-    return {
-        "id": row[0],
-        "action": row[1],
-        "trigger_type": row[2],
-        "trigger_payload": row[3],
-        "status": row[4],
-        "started_at": row[5],
-        "finished_at": row[6],
-        "exit_code": row[7],
-        "stdout": row[8],
-        "stderr": row[9],
-        "error": row[10],
-    }
-
-
 def list_runs(limit: int = 20) -> list[dict]:
     with get_conn() as conn:
         cur = conn.execute(
@@ -125,10 +130,19 @@ def list_runs(limit: int = 20) -> list[dict]:
 
     runs = []
     for row in rows:
-        run = _row_to_run(row)
-        run.pop("stdout", None)
-        run.pop("stderr", None)
+        run = {
+            "id": row[0],
+            "action": row[1],
+            "trigger_type": row[2],
+            "trigger_payload": row[3],
+            "status": row[4],
+            "started_at": row[5],
+            "finished_at": row[6],
+            "exit_code": row[7],
+            "error": row[10],
+        }
         runs.append(run)
+
     return runs
 
 
@@ -146,7 +160,21 @@ def get_run(run_id: int) -> Optional[dict]:
 
     if row is None:
         return None
-    return _row_to_run(row)
+
+    return {
+        "id": row[0],
+        "action": row[1],
+        "trigger_type": row[2],
+        "trigger_payload": row[3],
+        "status": row[4],
+        "started_at": row[5],
+        "finished_at": row[6],
+        "exit_code": row[7],
+        "stdout": row[8],
+        "stderr": row[9],
+        "error": row[10],
+    }
+
 
 def acquire_action_lock(action: str, run_id: int, acquired_at: str) -> bool:
     with get_conn() as conn:
@@ -197,17 +225,22 @@ def get_action_lock(action: str) -> Optional[dict]:
         "acquired_at": row[2],
     }
 
+
 def get_alert_last_execution(alert_key: str) -> str | None:
-    with sqlite3.connect(DB_PATH) as conn:
+    with get_conn() as conn:
         row = conn.execute(
-            "SELECT last_executed_at FROM alert_cooldowns WHERE alert_key = ?",
+            """
+            SELECT last_executed_at
+            FROM alert_cooldowns
+            WHERE alert_key = ?
+            """,
             (alert_key,),
         ).fetchone()
         return row[0] if row else None
 
 
 def set_alert_execution(alert_key: str, ts: str) -> None:
-    with sqlite3.connect(DB_PATH) as conn:
+    with get_conn() as conn:
         conn.execute(
             """
             INSERT INTO alert_cooldowns (alert_key, last_executed_at)
@@ -218,3 +251,93 @@ def set_alert_execution(alert_key: str, ts: str) -> None:
             (alert_key, ts),
         )
         conn.commit()
+
+
+def create_decision(
+    *,
+    source: str,
+    alertname: str,
+    fingerprint: str,
+    severity: str,
+    instance: str,
+    job: str,
+    status: str,
+    summary: str,
+    decision: str,
+    reason: str,
+    action: str | None,
+    run_id: int | None,
+    created_at: str,
+) -> int:
+    with get_conn() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO decisions (
+                source,
+                alertname,
+                fingerprint,
+                severity,
+                instance,
+                job,
+                status,
+                summary,
+                decision,
+                reason,
+                action,
+                run_id,
+                created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                source,
+                alertname,
+                fingerprint,
+                severity,
+                instance,
+                job,
+                status,
+                summary,
+                decision,
+                reason,
+                action,
+                run_id,
+                created_at,
+            ),
+        )
+        conn.commit()
+        return int(cur.lastrowid)
+
+
+def list_decisions(limit: int = 50) -> list[dict]:
+    with get_conn() as conn:
+        cur = conn.execute(
+            """
+            SELECT id, source, alertname, fingerprint, severity, instance, job, status, summary, decision, reason, action, run_id, created_at
+            FROM decisions
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        rows = cur.fetchall()
+
+    return [
+        {
+            "id": row[0],
+            "source": row[1],
+            "alertname": row[2],
+            "fingerprint": row[3],
+            "severity": row[4],
+            "instance": row[5],
+            "job": row[6],
+            "status": row[7],
+            "summary": row[8],
+            "decision": row[9],
+            "reason": row[10],
+            "action": row[11],
+            "run_id": row[12],
+            "created_at": row[13],
+        }
+        for row in rows
+    ]
