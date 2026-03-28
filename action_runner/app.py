@@ -8,13 +8,13 @@ from urllib.parse import urlparse
 
 from .config import HOST, PORT
 from .events import normalize_alertmanager_payload
-from .executor import execute_action
+from .executor import execute_action, now_utc
 from .rules import decide_alert_action
-from .state import get_run, init_db, list_runs
+from .state import get_run, init_db, list_runs, set_alert_execution
 
 
 class ActionRunnerHandler(BaseHTTPRequestHandler):
-    server_version = "action-runner/0.4"
+    server_version = "action-runner/0.5"
 
     def _json_response(self, status: int, payload: dict[str, Any]) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -98,6 +98,7 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
                 alerts = normalize_alertmanager_payload(data)
 
                 decisions: list[dict[str, Any]] = []
+
                 for alert in alerts:
                     decision = decide_alert_action(alert)
 
@@ -108,6 +109,7 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
                         "instance": alert["instance"],
                         "job": alert["job"],
                         "summary": alert["summary"],
+                        "fingerprint": alert["fingerprint"],
                         "decision": decision["decision"],
                         "reason": decision["reason"],
                     }
@@ -118,6 +120,10 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
                             decision["payload"],
                             trigger_type="alertmanager",
                         )
+
+                        if result.get("status") == "success" and "alert_key" in decision:
+                            set_alert_execution(decision["alert_key"], now_utc())
+
                         base["action"] = decision["action"]
                         base["result"] = result
 

@@ -38,6 +38,15 @@ def init_db() -> None:
             """
         )
 
+        conn.execute(
+           """
+           CREATE TABLE IF NOT EXISTS alert_cooldowns (
+               alert_key TEXT PRIMARY KEY,
+               last_executed_at TEXT NOT NULL
+           )
+           """
+        )
+
         conn.commit()
 
 
@@ -187,3 +196,25 @@ def get_action_lock(action: str) -> Optional[dict]:
         "run_id": row[1],
         "acquired_at": row[2],
     }
+
+def get_alert_last_execution(alert_key: str) -> str | None:
+    with sqlite3.connect(DB_PATH) as conn:
+        row = conn.execute(
+            "SELECT last_executed_at FROM alert_cooldowns WHERE alert_key = ?",
+            (alert_key,),
+        ).fetchone()
+        return row[0] if row else None
+
+
+def set_alert_execution(alert_key: str, ts: str) -> None:
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            """
+            INSERT INTO alert_cooldowns (alert_key, last_executed_at)
+            VALUES (?, ?)
+            ON CONFLICT(alert_key)
+            DO UPDATE SET last_executed_at = excluded.last_executed_at
+            """,
+            (alert_key, ts),
+        )
+        conn.commit()
