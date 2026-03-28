@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any
 
 
@@ -15,6 +17,16 @@ def _pick_str(*values: Any, default: str = "") -> str:
         if text:
             return text
     return default
+
+
+def _build_fingerprint(labels: dict[str, Any], explicit_fingerprint: Any) -> str:
+    fp = _pick_str(explicit_fingerprint)
+    if fp:
+        return fp
+
+    normalized = {str(k): str(v) for k, v in sorted(labels.items())}
+    raw = json.dumps(normalized, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 def normalize_alertmanager_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -40,6 +52,7 @@ def normalize_alertmanager_payload(payload: dict[str, Any]) -> list[dict[str, An
                 "job": _pick_str(labels.get("job")),
                 "summary": _pick_str(annotations.get("summary")),
                 "description": _pick_str(annotations.get("description")),
+                "fingerprint": _build_fingerprint(labels, alert.get("fingerprint")),
                 "labels": labels,
                 "annotations": annotations,
                 "raw": alert,
