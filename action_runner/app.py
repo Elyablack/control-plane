@@ -7,8 +7,9 @@ from typing import Any
 from urllib.parse import urlparse
 
 from .config import HOST, PORT
+from .events import normalize_alertmanager_payload
 from .executor import execute_action
-from .rules import match_alertmanager_action
+from .rules import decide_alert_action
 from .state import get_run, init_db, list_runs
 
 
@@ -94,30 +95,40 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
         if path == "/events/alertmanager":
             try:
                 data = self._read_json()
-                matched = match_alertmanager_action(data)
+                alerts = normalize_alertmanager_payload(data)
 
-                if matched is None:
-                    self._json_response(
-                        HTTPStatus.OK,
-                        {
-                            "status": "ignored",
-                            "reason": "no matching rule",
-                        },
-                    )
-                    return
+                decisions: list[dict[str, Any]] = []
+                for alert in alerts:
+                    decision = decide_alert_action(alert)
 
-                result = execute_action(
-                    matched["action"],
-                    matched["payload"],
-                    trigger_type="alertmanager",
-                )
+                    base = {
+                        "alertname": alert["alertname"],
+                        "status": alert["status"],
+                        "severity": alert["severity"],
+                        "instance": alert["instance"],
+                        "job": alert["job"],
+                        "summary": alert["summary"],
+                        "decision": decision["decision"],
+                        "reason": decision["reason"],
+                    }
+
+                    if decision["decision"] == "execute":
+                        result = execute_action(
+                            decision["action"],
+                            decision["payload"],
+                            trigger_type="alertmanager",
+                        )
+                        base["action"] = decision["action"]
+                        base["result"] = result
+
+                    decisions.append(base)
 
                 self._json_response(
                     HTTPStatus.OK,
                     {
                         "status": "processed",
-                        "matched_rule": matched,
-                        "result": result,
+                        "alerts_received": len(alerts),
+                        "decisions": decisions,
                     },
                 )
                 return

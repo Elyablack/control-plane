@@ -6,7 +6,7 @@ BASE_DIR = Path("/srv/control-plane")
 STATE_DIR = BASE_DIR / "state"
 DB_PATH = STATE_DIR / "action_runner.db"
 
-HOST = "127.0.0.1"
+HOST = "0.0.0.0"
 PORT = 8088
 
 ALLOWED_ACTIONS = {
