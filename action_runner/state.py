@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import contextmanager
-from pathlib import Path
 from typing import Iterator, Optional
 
 from .config import DB_PATH, STATE_DIR
@@ -75,11 +74,27 @@ def finish_run(
         conn.commit()
 
 
+def _row_to_run(row: tuple) -> dict:
+    return {
+        "id": row[0],
+        "action": row[1],
+        "trigger_type": row[2],
+        "trigger_payload": row[3],
+        "status": row[4],
+        "started_at": row[5],
+        "finished_at": row[6],
+        "exit_code": row[7],
+        "stdout": row[8],
+        "stderr": row[9],
+        "error": row[10],
+    }
+
+
 def list_runs(limit: int = 20) -> list[dict]:
     with get_conn() as conn:
         cur = conn.execute(
             """
-            SELECT id, action, trigger_type, trigger_payload, status, started_at, finished_at, exit_code, error
+            SELECT id, action, trigger_type, trigger_payload, status, started_at, finished_at, exit_code, stdout, stderr, error
             FROM runs
             ORDER BY id DESC
             LIMIT ?
@@ -88,17 +103,27 @@ def list_runs(limit: int = 20) -> list[dict]:
         )
         rows = cur.fetchall()
 
-    return [
-        {
-            "id": row[0],
-            "action": row[1],
-            "trigger_type": row[2],
-            "trigger_payload": row[3],
-            "status": row[4],
-            "started_at": row[5],
-            "finished_at": row[6],
-            "exit_code": row[7],
-            "error": row[8],
-        }
-        for row in rows
-    ]
+    runs = []
+    for row in rows:
+        run = _row_to_run(row)
+        run.pop("stdout", None)
+        run.pop("stderr", None)
+        runs.append(run)
+    return runs
+
+
+def get_run(run_id: int) -> Optional[dict]:
+    with get_conn() as conn:
+        cur = conn.execute(
+            """
+            SELECT id, action, trigger_type, trigger_payload, status, started_at, finished_at, exit_code, stdout, stderr, error
+            FROM runs
+            WHERE id = ?
+            """,
+            (run_id,),
+        )
+        row = cur.fetchone()
+
+    if row is None:
+        return None
+    return _row_to_run(row)
