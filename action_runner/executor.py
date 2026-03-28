@@ -52,4 +52,6 @@ def execute_action(action: str, payload: dict[str, Any], *, trigger_type: str) -
         "started_at": started_at,
         "finished_at": finished_at,
         "exit_code": result.returncode,
+        "detail_url": f"/runs/{run_id}",
     }
+

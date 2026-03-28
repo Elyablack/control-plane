@@ -8,11 +8,11 @@ from urllib.parse import urlparse
 
 from .config import HOST, PORT
 from .executor import execute_action
-from .state import init_db, list_runs
+from .state import get_run, init_db, list_runs
 
 
 class ActionRunnerHandler(BaseHTTPRequestHandler):
-    server_version = "action-runner/0.1"
+    server_version = "action-runner/0.2"
 
     def _json_response(self, status: int, payload: dict[str, Any]) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -45,6 +45,20 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
                 HTTPStatus.OK,
                 {"runs": list_runs()},
             )
+            return
+
+        if path.startswith("/runs/"):
+            raw_id = path.removeprefix("/runs/").strip()
+            if not raw_id.isdigit():
+                self._json_response(HTTPStatus.BAD_REQUEST, {"error": "run id must be an integer"})
+                return
+
+            run = get_run(int(raw_id))
+            if run is None:
+                self._json_response(HTTPStatus.NOT_FOUND, {"error": "run not found"})
+                return
+
+            self._json_response(HTTPStatus.OK, run)
             return
 
         self._json_response(
