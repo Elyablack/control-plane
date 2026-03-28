@@ -27,6 +27,17 @@ def init_db() -> None:
             )
             """
         )
+
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS action_locks (
+                action TEXT PRIMARY KEY,
+                run_id INTEGER NOT NULL,
+                acquired_at TEXT NOT NULL
+            )
+            """
+        )
+
         conn.commit()
 
 
@@ -127,3 +138,52 @@ def get_run(run_id: int) -> Optional[dict]:
     if row is None:
         return None
     return _row_to_run(row)
+
+def acquire_action_lock(action: str, run_id: int, acquired_at: str) -> bool:
+    with get_conn() as conn:
+        try:
+            conn.execute(
+                """
+                INSERT INTO action_locks (action, run_id, acquired_at)
+                VALUES (?, ?, ?)
+                """,
+                (action, run_id, acquired_at),
+            )
+            conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+
+def release_action_lock(action: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            DELETE FROM action_locks
+            WHERE action = ?
+            """,
+            (action,),
+        )
+        conn.commit()
+
+
+def get_action_lock(action: str) -> Optional[dict]:
+    with get_conn() as conn:
+        cur = conn.execute(
+            """
+            SELECT action, run_id, acquired_at
+            FROM action_locks
+            WHERE action = ?
+            """,
+            (action,),
+        )
+        row = cur.fetchone()
+
+    if row is None:
+        return None
+
+    return {
+        "action": row[0],
+        "run_id": row[1],
+        "acquired_at": row[2],
+    }
