@@ -10,11 +10,18 @@ from .config import HOST, PORT
 from .events import normalize_alertmanager_payload
 from .executor import execute_action, now_utc
 from .rules import decide_alert_action
-from .state import get_run, init_db, list_runs, set_alert_execution
+from .state import (
+    create_decision,
+    get_run,
+    init_db,
+    list_decisions,
+    list_runs,
+    set_alert_execution,
+)
 
 
 class ActionRunnerHandler(BaseHTTPRequestHandler):
-    server_version = "action-runner/0.5"
+    server_version = "action-runner/0.6"
 
     def _json_response(self, status: int, payload: dict[str, Any]) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -46,6 +53,13 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
             self._json_response(
                 HTTPStatus.OK,
                 {"runs": list_runs()},
+            )
+            return
+
+        if path == "/decisions":
+            self._json_response(
+                HTTPStatus.OK,
+                {"decisions": list_decisions()},
             )
             return
 
@@ -114,6 +128,9 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
                         "reason": decision["reason"],
                     }
 
+                    run_id: int | None = None
+                    action_name: str | None = decision.get("action")
+
                     if decision["decision"] == "execute":
                         result = execute_action(
                             decision["action"],
@@ -124,8 +141,27 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
                         if result.get("status") == "success" and "alert_key" in decision:
                             set_alert_execution(decision["alert_key"], now_utc())
 
+                        if isinstance(result.get("run_id"), int):
+                            run_id = result["run_id"]
+
                         base["action"] = decision["action"]
                         base["result"] = result
+
+                    create_decision(
+                        source="alertmanager",
+                        alertname=alert["alertname"],
+                        fingerprint=alert["fingerprint"],
+                        severity=alert["severity"],
+                        instance=alert["instance"],
+                        job=alert["job"],
+                        status=alert["status"],
+                        summary=alert["summary"],
+                        decision=decision["decision"],
+                        reason=decision["reason"],
+                        action=action_name,
+                        run_id=run_id,
+                        created_at=now_utc(),
+                    )
 
                     decisions.append(base)
 
