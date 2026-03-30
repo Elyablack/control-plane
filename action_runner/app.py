@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 
 from .config import HOST, PORT
 from .events import normalize_alertmanager_payload
-from .executor import execute_action, now_utc
+from .executor import execute_action, execute_chain, now_utc
 from .rule_loader import load_rules
 from .rules import decide_alert_action
 from .state import (
@@ -25,7 +25,7 @@ LOADED_RULES: list[dict[str, Any]] = []
 
 
 class ActionRunnerHandler(BaseHTTPRequestHandler):
-    server_version = "action-runner/0.8"
+    server_version = "action-runner/0.9"
 
     def _json_response(self, status: int, payload: dict[str, Any]) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -157,6 +157,22 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
 
                         base["action"] = decision["action"]
                         base["result"] = result
+
+                    elif decision["decision"] == "execute_chain":
+                        chain_result = execute_chain(
+                            decision["steps"],
+                            trigger_type="alertmanager",
+                        )
+
+                        if chain_result.get("status") == "success" and "alert_key" in decision:
+                            set_alert_execution(decision["alert_key"], now_utc())
+
+                        if isinstance(chain_result.get("first_run_id"), int):
+                            run_id = chain_result["first_run_id"]
+
+                        action_name = "chain"
+                        base["steps"] = decision["steps"]
+                        base["result"] = chain_result
 
                     decision_id = create_decision(
                         source="alertmanager",

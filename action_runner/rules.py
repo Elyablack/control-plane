@@ -31,7 +31,6 @@ def decide_alert_action(alert: dict[str, Any], rules: list[dict[str, Any]]) -> d
 
         action_block = rule["action"]
         action_type = action_block["type"]
-        action_name = action_block.get("name")
         cooldown_seconds = int(rule.get("cooldown_seconds", 0))
         alert_key = f"{rule['name']}:{fingerprint or fallback_key}"
 
@@ -43,31 +42,40 @@ def decide_alert_action(alert: dict[str, Any], rules: list[dict[str, Any]]) -> d
                 "alert_key": alert_key,
             }
 
-        if action_type == "execute":
-            last = get_alert_last_execution(alert_key)
-            if last and cooldown_seconds > 0:
-                try:
-                    last_dt = _parse_ts(last)
-                    elapsed = (datetime.now(timezone.utc) - last_dt).total_seconds()
-                    if elapsed < cooldown_seconds:
-                        return {
-                            "decision": "cooldown",
-                            "reason": f"matched rule '{rule['name']}' but action recently executed",
-                            "rule_name": rule["name"],
-                            "alert_key": alert_key,
-                            "action": action_name,
-                            "cooldown_seconds": cooldown_seconds,
-                        }
-                except Exception:
-                    pass
+        last = get_alert_last_execution(alert_key)
+        if last and cooldown_seconds > 0:
+            try:
+                last_dt = _parse_ts(last)
+                elapsed = (datetime.now(timezone.utc) - last_dt).total_seconds()
+                if elapsed < cooldown_seconds:
+                    return {
+                        "decision": "cooldown",
+                        "reason": f"matched rule '{rule['name']}' but action recently executed",
+                        "rule_name": rule["name"],
+                        "alert_key": alert_key,
+                        "cooldown_seconds": cooldown_seconds,
+                    }
+            except Exception:
+                pass
 
+        if action_type == "execute":
             return {
                 "decision": "execute",
                 "reason": f"matched execute rule: {rule['name']}",
                 "rule_name": rule["name"],
                 "alert_key": alert_key,
-                "action": action_name,
+                "action": action_block["name"],
                 "payload": action_block.get("payload", {}),
+                "cooldown_seconds": cooldown_seconds,
+            }
+
+        if action_type == "chain":
+            return {
+                "decision": "execute_chain",
+                "reason": f"matched chain rule: {rule['name']}",
+                "rule_name": rule["name"],
+                "alert_key": alert_key,
+                "steps": action_block.get("steps", []),
                 "cooldown_seconds": cooldown_seconds,
             }
 
@@ -77,3 +85,4 @@ def decide_alert_action(alert: dict[str, Any], rules: list[dict[str, Any]]) -> d
         "rule_name": None,
         "alert_key": fingerprint or fallback_key,
     }
+

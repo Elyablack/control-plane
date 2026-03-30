@@ -94,3 +94,54 @@ def execute_action(action: str, payload: dict[str, Any], *, trigger_type: str) -
         }
     finally:
         release_action_lock(action)
+
+
+def execute_chain(steps: list[dict[str, Any]], *, trigger_type: str) -> dict[str, Any]:
+    if not steps:
+        raise ValueError("chain must contain at least one step")
+
+    chain_started_at = now_utc()
+    step_results: list[dict[str, Any]] = []
+    first_run_id: int | None = None
+    last_run_id: int | None = None
+
+    for index, step in enumerate(steps, start=1):
+        action_name = str(step.get("name", "")).strip()
+        payload = step.get("payload", {})
+
+        if not isinstance(payload, dict):
+            raise ValueError(f"chain step #{index} payload must be an object")
+
+        result = execute_action(action_name, payload, trigger_type=trigger_type)
+        step_results.append(
+            {
+                "step": index,
+                "action": action_name,
+                "result": result,
+            }
+        )
+
+        run_id = result.get("run_id")
+        if isinstance(run_id, int):
+            if first_run_id is None:
+                first_run_id = run_id
+            last_run_id = run_id
+
+        if result.get("status") != "success":
+            return {
+                "status": "failed",
+                "started_at": chain_started_at,
+                "finished_at": now_utc(),
+                "first_run_id": first_run_id,
+                "last_run_id": last_run_id,
+                "step_results": step_results,
+            }
+
+    return {
+        "status": "success",
+        "started_at": chain_started_at,
+        "finished_at": now_utc(),
+        "first_run_id": first_run_id,
+        "last_run_id": last_run_id,
+        "step_results": step_results,
+    }
