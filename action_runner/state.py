@@ -128,9 +128,8 @@ def list_runs(limit: int = 20) -> list[dict]:
         )
         rows = cur.fetchall()
 
-    runs = []
-    for row in rows:
-        run = {
+    return [
+        {
             "id": row[0],
             "action": row[1],
             "trigger_type": row[2],
@@ -141,9 +140,8 @@ def list_runs(limit: int = 20) -> list[dict]:
             "exit_code": row[7],
             "error": row[10],
         }
-        runs.append(run)
-
-    return runs
+        for row in rows
+    ]
 
 
 def get_run(run_id: int) -> Optional[dict]:
@@ -341,3 +339,36 @@ def list_decisions(limit: int = 50) -> list[dict]:
         }
         for row in rows
     ]
+
+
+def get_decision(decision_id: int) -> Optional[dict]:
+    with get_conn() as conn:
+        cur = conn.execute(
+            """
+            SELECT id, source, alertname, fingerprint, severity, instance, job, status, summary, decision, reason, action, run_id, created_at
+            FROM decisions
+            WHERE id = ?
+            """,
+            (decision_id,),
+        )
+        row = cur.fetchone()
+
+    if row is None:
+        return None
+
+    return {
+        "id": row[0],
+        "source": row[1],
+        "alertname": row[2],
+        "fingerprint": row[3],
+        "severity": row[4],
+        "instance": row[5],
+        "job": row[6],
+        "status": row[7],
+        "summary": row[8],
+        "decision": row[9],
+        "reason": row[10],
+        "action": row[11],
+        "run_id": row[12],
+        "created_at": row[13],
+    }

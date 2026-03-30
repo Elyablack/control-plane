@@ -12,6 +12,7 @@ from .executor import execute_action, now_utc
 from .rules import decide_alert_action
 from .state import (
     create_decision,
+    get_decision,
     get_run,
     init_db,
     list_decisions,
@@ -21,7 +22,7 @@ from .state import (
 
 
 class ActionRunnerHandler(BaseHTTPRequestHandler):
-    server_version = "action-runner/0.6"
+    server_version = "action-runner/0.7"
 
     def _json_response(self, status: int, payload: dict[str, Any]) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -43,24 +44,15 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
 
         if path == "/healthz":
-            self._json_response(
-                HTTPStatus.OK,
-                {"status": "ok", "service": "action-runner"},
-            )
+            self._json_response(HTTPStatus.OK, {"status": "ok", "service": "action-runner"})
             return
 
         if path == "/runs":
-            self._json_response(
-                HTTPStatus.OK,
-                {"runs": list_runs()},
-            )
+            self._json_response(HTTPStatus.OK, {"runs": list_runs()})
             return
 
         if path == "/decisions":
-            self._json_response(
-                HTTPStatus.OK,
-                {"decisions": list_decisions()},
-            )
+            self._json_response(HTTPStatus.OK, {"decisions": list_decisions()})
             return
 
         if path.startswith("/runs/"):
@@ -77,10 +69,21 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
             self._json_response(HTTPStatus.OK, run)
             return
 
-        self._json_response(
-            HTTPStatus.NOT_FOUND,
-            {"error": "not found"},
-        )
+        if path.startswith("/decisions/"):
+            raw_id = path.removeprefix("/decisions/").strip()
+            if not raw_id.isdigit():
+                self._json_response(HTTPStatus.BAD_REQUEST, {"error": "decision id must be an integer"})
+                return
+
+            decision = get_decision(int(raw_id))
+            if decision is None:
+                self._json_response(HTTPStatus.NOT_FOUND, {"error": "decision not found"})
+                return
+
+            self._json_response(HTTPStatus.OK, decision)
+            return
+
+        self._json_response(HTTPStatus.NOT_FOUND, {"error": "not found"})
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path
@@ -100,10 +103,7 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
                 self._json_response(HTTPStatus.OK, result)
                 return
             except Exception as exc:
-                self._json_response(
-                    HTTPStatus.BAD_REQUEST,
-                    {"error": str(exc)},
-                )
+                self._json_response(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
                 return
 
         if path == "/events/alertmanager":
@@ -147,7 +147,7 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
                         base["action"] = decision["action"]
                         base["result"] = result
 
-                    create_decision(
+                    decision_id = create_decision(
                         source="alertmanager",
                         alertname=alert["alertname"],
                         fingerprint=alert["fingerprint"],
@@ -163,6 +163,7 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
                         created_at=now_utc(),
                     )
 
+                    base["decision_id"] = decision_id
                     decisions.append(base)
 
                 self._json_response(
@@ -175,16 +176,10 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
                 )
                 return
             except Exception as exc:
-                self._json_response(
-                    HTTPStatus.BAD_REQUEST,
-                    {"error": str(exc)},
-                )
+                self._json_response(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
                 return
 
-        self._json_response(
-            HTTPStatus.NOT_FOUND,
-            {"error": "not found"},
-        )
+        self._json_response(HTTPStatus.NOT_FOUND, {"error": "not found"})
 
     def log_message(self, format: str, *args: Any) -> None:
         return
