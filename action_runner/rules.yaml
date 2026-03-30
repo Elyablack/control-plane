@@ -1,14 +1,22 @@
 rules:
-  - name: backup_missing_run_backup
+  - name: backup_missing_chain
     enabled: true
     match:
       alertname: BackupMissing
       status: firing
       severity: critical
     action:
-      type: execute
-      name: run_backup
-      payload: {}
+      type: chain
+      steps:
+        - name: run_backup
+          payload: {}
+        - name: verify_backup
+          payload: {}
+        - name: notify_tg
+          payload:
+            message: "Backup workflow finished on VPS"
+            source: "action-runner"
+            event: "backup_chain_completed"
     cooldown_seconds: 3600
 
   - name: host_reboot_detected_ignore
@@ -19,14 +27,3 @@ rules:
     action:
       type: ignore
     cooldown_seconds: 0
-
-  - name: backup_verify_only
-    enabled: true
-    match:
-      alertname: BackupVerify
-      status: firing
-    action:
-      type: execute
-      name: verify_backup
-      payload: {}
-    cooldown_seconds: 300

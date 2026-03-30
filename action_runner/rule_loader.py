@@ -12,6 +12,10 @@ def _as_dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _as_list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
 def load_rules(path: Path | None = None) -> list[dict[str, Any]]:
     rules_path = path or RULES_PATH
 
@@ -46,11 +50,10 @@ def load_rules(path: Path | None = None) -> list[dict[str, Any]]:
             raise ValueError(f"rule '{name}' must define non-empty 'match'")
 
         action_type = str(action.get("type", "")).strip()
-        if action_type not in {"execute", "ignore"}:
+        if action_type not in {"execute", "ignore", "chain"}:
             raise ValueError(f"rule '{name}' has unsupported action.type '{action_type}'")
 
-        action_name = None
-        action_payload: dict[str, Any] = {}
+        normalized_action: dict[str, Any] = {"type": action_type}
 
         if action_type == "execute":
             action_name = str(action.get("name", "")).strip()
@@ -59,10 +62,41 @@ def load_rules(path: Path | None = None) -> list[dict[str, Any]]:
             if action_name not in ALLOWED_ACTIONS:
                 raise ValueError(f"rule '{name}' references unsupported action '{action_name}'")
 
-            raw_payload = action.get("payload", {})
-            if not isinstance(raw_payload, dict):
+            payload = action.get("payload", {})
+            if not isinstance(payload, dict):
                 raise ValueError(f"rule '{name}' action.payload must be an object")
-            action_payload = raw_payload
+
+            normalized_action["name"] = action_name
+            normalized_action["payload"] = payload
+
+        elif action_type == "chain":
+            raw_steps = _as_list(action.get("steps"))
+            if not raw_steps:
+                raise ValueError(f"rule '{name}' chain must define at least one step")
+
+            steps: list[dict[str, Any]] = []
+            for step_index, raw_step in enumerate(raw_steps, start=1):
+                if not isinstance(raw_step, dict):
+                    raise ValueError(f"rule '{name}' step #{step_index} must be an object")
+
+                step_name = str(raw_step.get("name", "")).strip()
+                if not step_name:
+                    raise ValueError(f"rule '{name}' step #{step_index} is missing name")
+                if step_name not in ALLOWED_ACTIONS:
+                    raise ValueError(f"rule '{name}' step #{step_index} references unsupported action '{step_name}'")
+
+                step_payload = raw_step.get("payload", {})
+                if not isinstance(step_payload, dict):
+                    raise ValueError(f"rule '{name}' step #{step_index} payload must be an object")
+
+                steps.append(
+                    {
+                        "name": step_name,
+                        "payload": step_payload,
+                    }
+                )
+
+            normalized_action["steps"] = steps
 
         cooldown_seconds = int(rule.get("cooldown_seconds", 0))
         if cooldown_seconds < 0:
@@ -73,11 +107,7 @@ def load_rules(path: Path | None = None) -> list[dict[str, Any]]:
                 "name": name,
                 "enabled": enabled,
                 "match": {str(k): str(v) for k, v in match.items()},
-                "action": {
-                    "type": action_type,
-                    "name": action_name,
-                    "payload": action_payload,
-                },
+                "action": normalized_action,
                 "cooldown_seconds": cooldown_seconds,
             }
         )

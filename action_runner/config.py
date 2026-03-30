@@ -13,5 +13,9 @@ PORT = 8088
 ALLOWED_ACTIONS = {
     "run_backup",
     "verify_backup",
-    "notify",
+    "notify_tg",
 }
+
+BACKUP_SCRIPT = "/srv/control-plane/backup/run_backup.sh"
+TG_RELAY_URL = "http://127.0.0.1:8082/"
+TG_RELAY_TIMEOUT_SECONDS = 10
