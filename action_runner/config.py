@@ -12,6 +12,6 @@ PORT = 8088
 
 ALLOWED_ACTIONS = {
     "run_backup",
+    "verify_backup",
+    "notify",
 }
-
-BACKUP_SCRIPT = "/srv/control-plane/backup/run_backup.sh"
