@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 from .config import HOST, PORT
 from .events import normalize_alertmanager_payload
 from .executor import execute_action, now_utc
+from .rule_loader import load_rules
 from .rules import decide_alert_action
 from .state import (
     create_decision,
@@ -20,9 +21,11 @@ from .state import (
     set_alert_execution,
 )
 
+LOADED_RULES: list[dict[str, Any]] = []
+
 
 class ActionRunnerHandler(BaseHTTPRequestHandler):
-    server_version = "action-runner/0.7"
+    server_version = "action-runner/0.8"
 
     def _json_response(self, status: int, payload: dict[str, Any]) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -44,7 +47,14 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
 
         if path == "/healthz":
-            self._json_response(HTTPStatus.OK, {"status": "ok", "service": "action-runner"})
+            self._json_response(
+                HTTPStatus.OK,
+                {
+                    "status": "ok",
+                    "service": "action-runner",
+                    "rules_loaded": len(LOADED_RULES),
+                },
+            )
             return
 
         if path == "/runs":
@@ -114,7 +124,7 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
                 decisions: list[dict[str, Any]] = []
 
                 for alert in alerts:
-                    decision = decide_alert_action(alert)
+                    decision = decide_alert_action(alert, LOADED_RULES)
 
                     base = {
                         "alertname": alert["alertname"],
@@ -126,6 +136,7 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
                         "fingerprint": alert["fingerprint"],
                         "decision": decision["decision"],
                         "reason": decision["reason"],
+                        "rule_name": decision.get("rule_name"),
                     }
 
                     run_id: int | None = None
@@ -186,7 +197,9 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
+    global LOADED_RULES
     init_db()
+    LOADED_RULES = load_rules()
     server = ThreadingHTTPServer((HOST, PORT), ActionRunnerHandler)
     server.serve_forever()
 

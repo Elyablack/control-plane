@@ -1,0 +1,21 @@
+rules:
+  - name: backup_missing_run_backup
+    enabled: true
+    match:
+      alertname: BackupMissing
+      status: firing
+      severity: critical
+    action:
+      type: execute
+      name: run_backup
+      payload: {}
+    cooldown_seconds: 3600
+
+  - name: host_reboot_detected_ignore
+    enabled: true
+    match:
+      alertname: HostRebootDetected
+      status: firing
+    action:
+      type: ignore
+    cooldown_seconds: 0
