@@ -19,3 +19,14 @@ rules:
     action:
       type: ignore
     cooldown_seconds: 0
+
+  - name: backup_verify_only
+    enabled: true
+    match:
+      alertname: BackupVerify
+      status: firing
+    action:
+      type: execute
+      name: verify_backup
+      payload: {}
+    cooldown_seconds: 300

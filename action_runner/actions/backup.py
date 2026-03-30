@@ -3,13 +3,22 @@ from __future__ import annotations
 import subprocess
 from typing import Any
 
-from ..config import BACKUP_SCRIPT
 
-
-def run_backup(payload: dict[str, Any]) -> subprocess.CompletedProcess[str]:
+def run_backup(_: dict[str, Any]) -> subprocess.CompletedProcess:
     return subprocess.run(
-        [BACKUP_SCRIPT],
+        ["/srv/control-plane/backup/run_backup.sh"],
         capture_output=True,
         text=True,
-        check=False,
+    )
+
+
+def verify_backup(_: dict[str, Any]) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [
+            "bash",
+            "-c",
+            "ls -t /srv/backups/vps-backup-*.tar.gz | head -n1"
+        ],
+        capture_output=True,
+        text=True,
     )
