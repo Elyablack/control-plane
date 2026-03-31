@@ -25,7 +25,7 @@ LOADED_RULES: list[dict[str, Any]] = []
 
 
 class ActionRunnerHandler(BaseHTTPRequestHandler):
-    server_version = "action-runner/0.9"
+    server_version = "action-runner/1.0"
 
     def _json_response(self, status: int, payload: dict[str, Any]) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -159,9 +159,21 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
                         base["result"] = result
 
                     elif decision["decision"] == "execute_chain":
+                        chain_context = {
+                            "alertname": alert["alertname"],
+                            "alert_status": alert["status"],
+                            "severity": alert["severity"],
+                            "instance": alert["instance"],
+                            "job": alert["job"],
+                            "summary": alert["summary"],
+                            "fingerprint": alert["fingerprint"],
+                            "rule_name": decision.get("rule_name") or "",
+                        }
+
                         chain_result = execute_chain(
                             decision["steps"],
                             trigger_type="alertmanager",
+                            chain_context=chain_context,
                         )
 
                         if chain_result.get("status") == "success" and "alert_key" in decision:
