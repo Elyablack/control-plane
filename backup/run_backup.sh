@@ -10,12 +10,15 @@ METRIC_FILE="/var/lib/node_exporter/textfile_collector/backup.prom"
 LOG_FILE="$LOG_DIR/backup.log"
 ERR_FILE="$LOG_DIR/backup.err.log"
 
+EXIT_BLOCKED=10
+EXIT_SKIPPED=11
+
 mkdir -p "$STATE_DIR" "$LOG_DIR"
 
 exec 9>"$LOCK_FILE"
 if ! flock -n 9; then
   echo "Backup job is already running."
-  exit 1
+  exit "$EXIT_BLOCKED"
 fi
 
 CURRENT_STEP="startup"
@@ -48,7 +51,7 @@ TODAY="$(date +%F)"
 CURRENT_STEP="precheck"
 if [[ -f "$STAMP_FILE" ]] && [[ "$(cat "$STAMP_FILE")" == "$TODAY" ]]; then
   log "backup already completed today (${TODAY}), skipping"
-  exit 0
+  exit "$EXIT_SKIPPED"
 fi
 
 log "=== backup start ==="

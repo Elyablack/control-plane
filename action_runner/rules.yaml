@@ -17,7 +17,12 @@ rules:
         - name: notify_tg
           payload:
             message: "[{{ chain_status|upper }}] {{ alertname }} on {{ instance }}"
-            description: "rule={{ rule_name }} step_results={{ step_count }} backup_run_id={{ first_run_id }}"
+            description: |
+              Backup workflow finished
+
+              rule: {{ rule_name }}
+              backup_run_id: {{ first_run_id }}
+              steps_executed: {{ step_count }}/{{ total_steps }}
             source: "action-runner"
             event: "backup_chain_completed"
             severity: "info"
