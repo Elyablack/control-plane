@@ -89,10 +89,20 @@ def load_rules(path: Path | None = None) -> list[dict[str, Any]]:
                 if not isinstance(step_payload, dict):
                     raise ValueError(f"rule '{name}' step #{step_index} payload must be an object")
 
+                retries = int(raw_step.get("retries", 0))
+                if retries < 0:
+                    raise ValueError(f"rule '{name}' step #{step_index} retries must be >= 0")
+
+                retry_delay_seconds = int(raw_step.get("retry_delay_seconds", 0))
+                if retry_delay_seconds < 0:
+                    raise ValueError(f"rule '{name}' step #{step_index} retry_delay_seconds must be >= 0")
+
                 steps.append(
                     {
                         "name": step_name,
                         "payload": step_payload,
+                        "retries": retries,
+                        "retry_delay_seconds": retry_delay_seconds,
                     }
                 )
 
@@ -113,3 +123,4 @@ def load_rules(path: Path | None = None) -> list[dict[str, Any]]:
         )
 
     return validated
+

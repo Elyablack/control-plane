@@ -10,13 +10,20 @@ rules:
       steps:
         - name: run_backup
           payload: {}
+
         - name: verify_backup
           payload: {}
+
         - name: notify_tg
           payload:
-            message: "Backup workflow finished on VPS"
+            message: "[{{ chain_status|upper }}] {{ alertname }} on {{ instance }}"
+            description: "rule={{ rule_name }} step_results={{ step_count }} backup_run_id={{ first_run_id }}"
             source: "action-runner"
             event: "backup_chain_completed"
+            severity: "info"
+            status: "firing"
+          retries: 3
+          retry_delay_seconds: 2
     cooldown_seconds: 3600
 
   - name: host_reboot_detected_ignore
