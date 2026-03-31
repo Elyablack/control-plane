@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .actions import ACTION_HANDLERS
+from .actions.types import ActionResult, from_completed_process
 from .config import ALLOWED_ACTIONS
 from .state import (
     acquire_action_lock,
@@ -19,6 +20,16 @@ from .state import (
 
 def now_utc() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+
+def _normalize_handler_result(raw_result: Any) -> ActionResult:
+    if isinstance(raw_result, ActionResult):
+        return raw_result
+
+    if hasattr(raw_result, "returncode") and hasattr(raw_result, "stdout") and hasattr(raw_result, "stderr"):
+        return from_completed_process(raw_result)
+
+    raise TypeError(f"unsupported action handler result type: {type(raw_result)!r}")
 
 
 def execute_action(action: str, payload: dict[str, Any], *, trigger_type: str) -> dict[str, Any]:
@@ -69,31 +80,31 @@ def execute_action(action: str, payload: dict[str, Any], *, trigger_type: str) -
         }
 
     try:
-        result = handler(payload)
-
+        outcome = _normalize_handler_result(handler(payload))
         finished_at = now_utc()
-        status = "success" if result.returncode == 0 else "failed"
-        error = None if result.returncode == 0 else f"command exited with code {result.returncode}"
 
         finish_run(
             run_id,
-            status=status,
+            status=outcome.status,
             finished_at=finished_at,
-            exit_code=result.returncode,
-            stdout=result.stdout,
-            stderr=result.stderr,
-            error=error,
+            exit_code=outcome.exit_code,
+            stdout=outcome.stdout,
+            stderr=outcome.stderr,
+            error=outcome.error,
         )
 
-        return {
+        response = {
             "run_id": run_id,
             "action": action,
-            "status": status,
+            "status": outcome.status,
             "started_at": started_at,
             "finished_at": finished_at,
-            "exit_code": result.returncode,
+            "exit_code": outcome.exit_code,
             "detail_url": f"/runs/{run_id}",
         }
+        if outcome.error:
+            response["error"] = outcome.error
+        return response
     finally:
         release_action_lock(action)
 
@@ -132,6 +143,10 @@ def _render_payload(value: Any, context: dict[str, Any]) -> Any:
     return value
 
 
+def _chain_should_continue(step_status: str) -> bool:
+    return step_status in {"success", "skipped"}
+
+
 def execute_chain(
     steps: list[dict[str, Any]],
     *,
@@ -146,7 +161,7 @@ def execute_chain(
     step_results: list[dict[str, Any]] = []
     first_run_id: int | None = None
     last_run_id: int | None = None
-    chain_status = "success"
+    final_chain_status = "success"
 
     for index, step in enumerate(steps, start=1):
         action_name = str(step.get("name", "")).strip()
@@ -162,7 +177,8 @@ def execute_chain(
                 "step": index,
                 "step_name": action_name,
                 "step_count": len(step_results),
-                "chain_status": chain_status,
+                "total_steps": len(steps),
+                "chain_status": final_chain_status,
                 "first_run_id": first_run_id or "",
                 "last_run_id": last_run_id or "",
             }
@@ -189,7 +205,7 @@ def execute_chain(
                     first_run_id = run_id
                 last_run_id = run_id
 
-            if result.get("status") == "success":
+            if _chain_should_continue(str(result.get("status", "failed"))):
                 break
 
             if attempt <= retries and retry_delay_seconds > 0:
@@ -207,6 +223,7 @@ def execute_chain(
         context.update(
             {
                 "step_count": len(step_results),
+                "total_steps": len(steps),
                 "first_run_id": first_run_id or "",
                 "last_run_id": last_run_id or "",
                 "last_action": action_name,
@@ -214,10 +231,10 @@ def execute_chain(
             }
         )
 
-        if final_result is None or final_result.get("status") != "success":
-            chain_status = "failed"
+        if final_result is None:
+            final_chain_status = "failed"
             return {
-                "status": "failed",
+                "status": final_chain_status,
                 "started_at": chain_started_at,
                 "finished_at": now_utc(),
                 "first_run_id": first_run_id,
@@ -225,9 +242,21 @@ def execute_chain(
                 "step_results": step_results,
             }
 
-    chain_status = "success"
+        final_step_status = str(final_result.get("status", "failed"))
+        if not _chain_should_continue(final_step_status):
+            final_chain_status = final_step_status
+            return {
+                "status": final_chain_status,
+                "started_at": chain_started_at,
+                "finished_at": now_utc(),
+                "first_run_id": first_run_id,
+                "last_run_id": last_run_id,
+                "step_results": step_results,
+            }
+
+    final_chain_status = "success"
     return {
-        "status": chain_status,
+        "status": final_chain_status,
         "started_at": chain_started_at,
         "finished_at": now_utc(),
         "first_run_id": first_run_id,
