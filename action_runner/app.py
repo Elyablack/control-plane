@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
@@ -8,24 +9,27 @@ from urllib.parse import urlparse
 
 from .config import HOST, PORT
 from .events import normalize_alertmanager_payload
-from .executor import execute_action, execute_chain, now_utc
+from .executor import execute_action, now_utc
 from .rule_loader import load_rules
 from .rules import decide_alert_action
 from .state import (
     create_decision,
+    create_task,
     get_decision,
     get_run,
+    get_task,
     init_db,
     list_decisions,
     list_runs,
-    set_alert_execution,
+    list_tasks,
 )
+from .worker import executor_worker_loop, notify_worker_loop
 
 LOADED_RULES: list[dict[str, Any]] = []
 
 
 class ActionRunnerHandler(BaseHTTPRequestHandler):
-    server_version = "action-runner/1.0"
+    server_version = "action-runner/2.0"
 
     def _json_response(self, status: int, payload: dict[str, Any]) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -65,6 +69,10 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
             self._json_response(HTTPStatus.OK, {"decisions": list_decisions()})
             return
 
+        if path == "/tasks":
+            self._json_response(HTTPStatus.OK, {"tasks": list_tasks()})
+            return
+
         if path.startswith("/runs/"):
             raw_id = path.removeprefix("/runs/").strip()
             if not raw_id.isdigit():
@@ -91,6 +99,20 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
                 return
 
             self._json_response(HTTPStatus.OK, decision)
+            return
+
+        if path.startswith("/tasks/"):
+            raw_id = path.removeprefix("/tasks/").strip()
+            if not raw_id.isdigit():
+                self._json_response(HTTPStatus.BAD_REQUEST, {"error": "task id must be an integer"})
+                return
+
+            task = get_task(int(raw_id))
+            if task is None:
+                self._json_response(HTTPStatus.NOT_FOUND, {"error": "task not found"})
+                return
+
+            self._json_response(HTTPStatus.OK, task)
             return
 
         self._json_response(HTTPStatus.NOT_FOUND, {"error": "not found"})
@@ -120,7 +142,6 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
             try:
                 data = self._read_json()
                 alerts = normalize_alertmanager_payload(data)
-
                 decisions: list[dict[str, Any]] = []
 
                 for alert in alerts:
@@ -139,24 +160,40 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
                         "rule_name": decision.get("rule_name"),
                     }
 
-                    run_id: int | None = None
                     action_name: str | None = decision.get("action")
+                    run_id: int | None = None
+
+                    decision_id = create_decision(
+                        source="alertmanager",
+                        alertname=alert["alertname"],
+                        fingerprint=alert["fingerprint"],
+                        severity=alert["severity"],
+                        instance=alert["instance"],
+                        job=alert["job"],
+                        status=alert["status"],
+                        summary=alert["summary"],
+                        decision=decision["decision"],
+                        reason=decision["reason"],
+                        action=action_name if action_name else ("chain" if decision["decision"] == "execute_chain" else None),
+                        run_id=run_id,
+                        created_at=now_utc(),
+                    )
+
+                    base["decision_id"] = decision_id
 
                     if decision["decision"] == "execute":
-                        result = execute_action(
-                            decision["action"],
-                            decision["payload"],
-                            trigger_type="alertmanager",
+                        task_payload = {
+                            "action": decision["action"],
+                            "payload": decision["payload"],
+                            "alert_key": decision.get("alert_key"),
+                        }
+                        task_id = create_task(
+                            decision_id=decision_id,
+                            task_type="action",
+                            payload=json.dumps(task_payload, ensure_ascii=False, sort_keys=True),
+                            created_at=now_utc(),
                         )
-
-                        if result.get("status") == "success" and "alert_key" in decision:
-                            set_alert_execution(decision["alert_key"], now_utc())
-
-                        if isinstance(result.get("run_id"), int):
-                            run_id = result["run_id"]
-
-                        base["action"] = decision["action"]
-                        base["result"] = result
+                        base["task_id"] = task_id
 
                     elif decision["decision"] == "execute_chain":
                         chain_context = {
@@ -170,45 +207,27 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
                             "rule_name": decision.get("rule_name") or "",
                         }
 
-                        chain_result = execute_chain(
-                            decision["steps"],
-                            trigger_type="alertmanager",
-                            chain_context=chain_context,
+                        task_payload = {
+                            "steps": decision["steps"],
+                            "chain_context": chain_context,
+                            "alert_key": decision.get("alert_key"),
+                        }
+
+                        task_id = create_task(
+                            decision_id=decision_id,
+                            task_type="chain",
+                            payload=json.dumps(task_payload, ensure_ascii=False, sort_keys=True),
+                            created_at=now_utc(),
                         )
-
-                        if chain_result.get("status") == "success" and "alert_key" in decision:
-                            set_alert_execution(decision["alert_key"], now_utc())
-
-                        if isinstance(chain_result.get("first_run_id"), int):
-                            run_id = chain_result["first_run_id"]
-
-                        action_name = "chain"
+                        base["task_id"] = task_id
                         base["steps"] = decision["steps"]
-                        base["result"] = chain_result
 
-                    decision_id = create_decision(
-                        source="alertmanager",
-                        alertname=alert["alertname"],
-                        fingerprint=alert["fingerprint"],
-                        severity=alert["severity"],
-                        instance=alert["instance"],
-                        job=alert["job"],
-                        status=alert["status"],
-                        summary=alert["summary"],
-                        decision=decision["decision"],
-                        reason=decision["reason"],
-                        action=action_name,
-                        run_id=run_id,
-                        created_at=now_utc(),
-                    )
-
-                    base["decision_id"] = decision_id
                     decisions.append(base)
 
                 self._json_response(
                     HTTPStatus.OK,
                     {
-                        "status": "processed",
+                        "status": "accepted",
                         "alerts_received": len(alerts),
                         "decisions": decisions,
                     },
@@ -228,6 +247,21 @@ def main() -> None:
     global LOADED_RULES
     init_db()
     LOADED_RULES = load_rules()
+
+    executor_thread = threading.Thread(
+        target=executor_worker_loop,
+        name="executor-worker",
+        daemon=True,
+    )
+    executor_thread.start()
+
+    notify_thread = threading.Thread(
+        target=notify_worker_loop,
+        name="notify-worker",
+        daemon=True,
+    )
+    notify_thread.start()
+
     server = ThreadingHTTPServer((HOST, PORT), ActionRunnerHandler)
     server.serve_forever()
 
