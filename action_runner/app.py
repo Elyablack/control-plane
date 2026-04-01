@@ -7,7 +7,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import urlparse
 
-from .config import HOST, PORT
+from .config import DEFAULT_TASK_PRIORITY, HOST, PORT, TASK_PRIORITY_BY_SEVERITY
 from .events import normalize_alertmanager_payload
 from .executor import execute_action, now_utc
 from .rule_loader import load_rules
@@ -28,8 +28,12 @@ from .worker import executor_worker_loop, notify_worker_loop
 LOADED_RULES: list[dict[str, Any]] = []
 
 
+def _priority_for_severity(severity: str) -> int:
+    return TASK_PRIORITY_BY_SEVERITY.get(severity.lower(), DEFAULT_TASK_PRIORITY)
+
+
 class ActionRunnerHandler(BaseHTTPRequestHandler):
-    server_version = "action-runner/2.0"
+    server_version = "action-runner/3.0"
 
     def _json_response(self, status: int, payload: dict[str, Any]) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -161,8 +165,6 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
                     }
 
                     action_name: str | None = decision.get("action")
-                    run_id: int | None = None
-
                     decision_id = create_decision(
                         source="alertmanager",
                         alertname=alert["alertname"],
@@ -175,11 +177,12 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
                         decision=decision["decision"],
                         reason=decision["reason"],
                         action=action_name if action_name else ("chain" if decision["decision"] == "execute_chain" else None),
-                        run_id=run_id,
+                        run_id=None,
                         created_at=now_utc(),
                     )
 
                     base["decision_id"] = decision_id
+                    task_priority = _priority_for_severity(alert["severity"])
 
                     if decision["decision"] == "execute":
                         task_payload = {
@@ -191,6 +194,7 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
                             decision_id=decision_id,
                             task_type="action",
                             payload=json.dumps(task_payload, ensure_ascii=False, sort_keys=True),
+                            priority=task_priority,
                             created_at=now_utc(),
                         )
                         base["task_id"] = task_id
@@ -217,6 +221,7 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
                             decision_id=decision_id,
                             task_type="chain",
                             payload=json.dumps(task_payload, ensure_ascii=False, sort_keys=True),
+                            priority=task_priority,
                             created_at=now_utc(),
                         )
                         base["task_id"] = task_id

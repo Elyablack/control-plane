@@ -75,6 +75,7 @@ def init_db() -> None:
                 decision_id INTEGER,
                 task_type TEXT NOT NULL,
                 payload TEXT NOT NULL,
+                priority INTEGER NOT NULL DEFAULT 50,
                 status TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 started_at TEXT,
@@ -397,15 +398,16 @@ def create_task(
     decision_id: int | None,
     task_type: str,
     payload: str,
+    priority: int,
     created_at: str,
 ) -> int:
     with get_conn() as conn:
         cur = conn.execute(
             """
-            INSERT INTO tasks (decision_id, task_type, payload, status, created_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO tasks (decision_id, task_type, payload, priority, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (decision_id, task_type, payload, "pending", created_at),
+            (decision_id, task_type, payload, priority, "pending", created_at),
         )
         conn.commit()
         return int(cur.lastrowid)
@@ -415,7 +417,7 @@ def list_tasks(limit: int = 50) -> list[dict]:
     with get_conn() as conn:
         cur = conn.execute(
             """
-            SELECT id, decision_id, task_type, payload, status, created_at, started_at, finished_at, result_json, error
+            SELECT id, decision_id, task_type, payload, priority, status, created_at, started_at, finished_at, result_json, error
             FROM tasks
             ORDER BY id DESC
             LIMIT ?
@@ -430,12 +432,13 @@ def list_tasks(limit: int = 50) -> list[dict]:
             "decision_id": row[1],
             "task_type": row[2],
             "payload": row[3],
-            "status": row[4],
-            "created_at": row[5],
-            "started_at": row[6],
-            "finished_at": row[7],
-            "result_json": row[8],
-            "error": row[9],
+            "priority": row[4],
+            "status": row[5],
+            "created_at": row[6],
+            "started_at": row[7],
+            "finished_at": row[8],
+            "result_json": row[9],
+            "error": row[10],
         }
         for row in rows
     ]
@@ -445,7 +448,7 @@ def get_task(task_id: int) -> Optional[dict]:
     with get_conn() as conn:
         cur = conn.execute(
             """
-            SELECT id, decision_id, task_type, payload, status, created_at, started_at, finished_at, result_json, error
+            SELECT id, decision_id, task_type, payload, priority, status, created_at, started_at, finished_at, result_json, error
             FROM tasks
             WHERE id = ?
             """,
@@ -461,26 +464,30 @@ def get_task(task_id: int) -> Optional[dict]:
         "decision_id": row[1],
         "task_type": row[2],
         "payload": row[3],
-        "status": row[4],
-        "created_at": row[5],
-        "started_at": row[6],
-        "finished_at": row[7],
-        "result_json": row[8],
-        "error": row[9],
+        "priority": row[4],
+        "status": row[5],
+        "created_at": row[6],
+        "started_at": row[7],
+        "finished_at": row[8],
+        "result_json": row[9],
+        "error": row[10],
     }
 
 
 def get_next_task(task_types: list[str]) -> Optional[dict]:
+    if not task_types:
+        return None
+
     placeholders = ",".join("?" for _ in task_types)
 
     with get_conn() as conn:
         cur = conn.execute(
             f"""
-            SELECT id, decision_id, task_type, payload, status, created_at
+            SELECT id, decision_id, task_type, payload, priority, status, created_at
             FROM tasks
             WHERE status = 'pending'
               AND task_type IN ({placeholders})
-            ORDER BY id ASC
+            ORDER BY priority DESC, id ASC
             LIMIT 1
             """,
             task_types,
@@ -495,8 +502,9 @@ def get_next_task(task_types: list[str]) -> Optional[dict]:
         "decision_id": row[1],
         "task_type": row[2],
         "payload": row[3],
-        "status": row[4],
-        "created_at": row[5],
+        "priority": row[4],
+        "status": row[5],
+        "created_at": row[6],
     }
 
 
