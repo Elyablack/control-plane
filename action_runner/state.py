@@ -68,6 +68,23 @@ def init_db() -> None:
             """
         )
 
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                decision_id INTEGER,
+                task_type TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                finished_at TEXT,
+                result_json TEXT,
+                error TEXT
+            )
+            """
+        )
+
         conn.commit()
 
 
@@ -234,7 +251,8 @@ def get_alert_last_execution(alert_key: str) -> str | None:
             """,
             (alert_key,),
         ).fetchone()
-        return row[0] if row else None
+
+    return row[0] if row else None
 
 
 def set_alert_execution(alert_key: str, ts: str) -> None:
@@ -372,3 +390,144 @@ def get_decision(decision_id: int) -> Optional[dict]:
         "run_id": row[12],
         "created_at": row[13],
     }
+
+
+def create_task(
+    *,
+    decision_id: int | None,
+    task_type: str,
+    payload: str,
+    created_at: str,
+) -> int:
+    with get_conn() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO tasks (decision_id, task_type, payload, status, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (decision_id, task_type, payload, "pending", created_at),
+        )
+        conn.commit()
+        return int(cur.lastrowid)
+
+
+def list_tasks(limit: int = 50) -> list[dict]:
+    with get_conn() as conn:
+        cur = conn.execute(
+            """
+            SELECT id, decision_id, task_type, payload, status, created_at, started_at, finished_at, result_json, error
+            FROM tasks
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        rows = cur.fetchall()
+
+    return [
+        {
+            "id": row[0],
+            "decision_id": row[1],
+            "task_type": row[2],
+            "payload": row[3],
+            "status": row[4],
+            "created_at": row[5],
+            "started_at": row[6],
+            "finished_at": row[7],
+            "result_json": row[8],
+            "error": row[9],
+        }
+        for row in rows
+    ]
+
+
+def get_task(task_id: int) -> Optional[dict]:
+    with get_conn() as conn:
+        cur = conn.execute(
+            """
+            SELECT id, decision_id, task_type, payload, status, created_at, started_at, finished_at, result_json, error
+            FROM tasks
+            WHERE id = ?
+            """,
+            (task_id,),
+        )
+        row = cur.fetchone()
+
+    if row is None:
+        return None
+
+    return {
+        "id": row[0],
+        "decision_id": row[1],
+        "task_type": row[2],
+        "payload": row[3],
+        "status": row[4],
+        "created_at": row[5],
+        "started_at": row[6],
+        "finished_at": row[7],
+        "result_json": row[8],
+        "error": row[9],
+    }
+
+
+def get_next_task(task_types: list[str]) -> Optional[dict]:
+    placeholders = ",".join("?" for _ in task_types)
+
+    with get_conn() as conn:
+        cur = conn.execute(
+            f"""
+            SELECT id, decision_id, task_type, payload, status, created_at
+            FROM tasks
+            WHERE status = 'pending'
+              AND task_type IN ({placeholders})
+            ORDER BY id ASC
+            LIMIT 1
+            """,
+            task_types,
+        )
+        row = cur.fetchone()
+
+    if row is None:
+        return None
+
+    return {
+        "id": row[0],
+        "decision_id": row[1],
+        "task_type": row[2],
+        "payload": row[3],
+        "status": row[4],
+        "created_at": row[5],
+    }
+
+
+def start_task(task_id: int, started_at: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE tasks
+            SET status = 'running', started_at = ?
+            WHERE id = ?
+            """,
+            (started_at, task_id),
+        )
+        conn.commit()
+
+
+def finish_task(
+    task_id: int,
+    *,
+    status: str,
+    finished_at: str,
+    result_json: str | None,
+    error: str | None,
+) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE tasks
+            SET status = ?, finished_at = ?, result_json = ?, error = ?
+            WHERE id = ?
+            """,
+            (status, finished_at, result_json, error, task_id),
+        )
+        conn.commit()
