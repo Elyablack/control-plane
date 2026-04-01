@@ -18,4 +18,12 @@ ALLOWED_ACTIONS = {
 
 BACKUP_SCRIPT = "/srv/control-plane/backup/run_backup.sh"
 TG_RELAY_URL = "http://127.0.0.1:8082/"
-TG_RELAY_TIMEOUT_SECONDS = 10
+TG_RELAY_TIMEOUT_SECONDS = 11
+
+DEFAULT_TASK_PRIORITY = 50
+TASK_PRIORITY_BY_SEVERITY = {
+    "critical": 200,
+    "warning": 100,
+    "info": 50,
+    "test": 25,
+}

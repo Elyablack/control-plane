@@ -4,7 +4,7 @@ import json
 import re
 import time
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 from .actions import ACTION_HANDLERS
 from .actions.types import ActionResult, from_completed_process
@@ -152,6 +152,7 @@ def execute_chain(
     *,
     trigger_type: str,
     chain_context: dict[str, Any] | None = None,
+    queue_notify_task: Callable[[dict[str, Any]], int] | None = None,
 ) -> dict[str, Any]:
     if not steps:
         raise ValueError("chain must contain at least one step")
@@ -185,6 +186,33 @@ def execute_chain(
         )
 
         rendered_payload = _render_payload(raw_payload, context)
+
+        if action_name == "notify_tg" and queue_notify_task is not None:
+            notify_task_id = queue_notify_task(rendered_payload)
+
+            step_entry = {
+                "step": index,
+                "action": action_name,
+                "rendered_payload": rendered_payload,
+                "queued_task_id": notify_task_id,
+                "result": {
+                    "status": "queued",
+                    "task_id": notify_task_id,
+                },
+            }
+            step_results.append(step_entry)
+
+            context.update(
+                {
+                    "step_count": len(step_results),
+                    "total_steps": len(steps),
+                    "first_run_id": first_run_id or "",
+                    "last_run_id": last_run_id or "",
+                    "last_action": action_name,
+                    "last_step_status": "queued",
+                }
+            )
+            continue
 
         attempt_results: list[dict[str, Any]] = []
         final_result: dict[str, Any] | None = None
