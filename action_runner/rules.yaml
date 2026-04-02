@@ -10,10 +10,8 @@ rules:
       steps:
         - name: run_backup
           payload: {}
-
         - name: verify_backup
           payload: {}
-
         - name: notify_tg
           payload:
             message: "[{{ chain_status|upper }}] {{ alertname }} on {{ instance }}"
@@ -30,6 +28,56 @@ rules:
           retries: 3
           retry_delay_seconds: 2
     cooldown_seconds: 3600
+
+  - name: mac_memory_pressure_warning_notify
+    enabled: true
+    match:
+      alertname: MacMemoryPressure
+      status: firing
+      severity: warning
+    action:
+      type: chain
+      steps:
+        - name: notify_tg
+          payload:
+            message: "[MAC][WARNING] {{ alertname }} on {{ instance }}"
+            description: |
+              {{ summary }}
+
+              {{ description }}
+            source: "action-runner"
+            event: "mac_memory_pressure_warning"
+            severity: "warning"
+            status: "firing"
+          retries: 3
+          retry_delay_seconds: 2
+    cooldown_seconds: 900
+
+  - name: mac_memory_pressure_critical_escalate
+    enabled: true
+    match:
+      alertname: MacMemoryPressure
+      status: firing
+      severity: critical
+    action:
+      type: chain
+      steps:
+        - name: notify_tg
+          payload:
+            message: "[MAC][CRITICAL] {{ alertname }} on {{ instance }}"
+            description: |
+              {{ summary }}
+
+              {{ description }}
+
+              escalation: remediation requested
+            source: "action-runner"
+            event: "mac_memory_pressure_critical"
+            severity: "critical"
+            status: "firing"
+          retries: 3
+          retry_delay_seconds: 2
+    cooldown_seconds: 300
 
   - name: host_reboot_detected_ignore
     enabled: true
