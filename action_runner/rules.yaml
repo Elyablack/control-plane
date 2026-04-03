@@ -75,10 +75,15 @@ rules:
             event: "mac_memory_pressure_critical"
             severity: "critical"
             status: "firing"
-          retries: 3
-          retry_delay_seconds: 2
-    cooldown_seconds: 300
 
+        - name: enqueue_mac_action
+          payload:
+            action: "soft_quit"
+            target: "Music"
+            instance: "{{ instance }}"
+            severity: "{{ severity }}"
+    cooldown_seconds: 300
+  
   - name: host_reboot_detected_ignore
     enabled: true
     match:
