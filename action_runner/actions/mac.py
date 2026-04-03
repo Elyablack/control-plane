@@ -19,7 +19,6 @@ def _priority_for_severity(severity: str) -> int:
 
 def enqueue_mac_action(payload: dict[str, Any]) -> ActionResult:
     action = str(payload.get("action", "")).strip()
-    target = str(payload.get("target", "")).strip()
     severity = str(payload.get("severity", "critical")).strip().lower()
     instance = str(payload.get("instance", "")).strip()
 
@@ -32,18 +31,8 @@ def enqueue_mac_action(payload: dict[str, Any]) -> ActionResult:
             error="missing field: action",
         )
 
-    if not target:
-        return ActionResult(
-            status="failed",
-            exit_code=1,
-            stdout="",
-            stderr="missing field: target",
-            error="missing field: target",
-        )
-
     task_payload = {
         "action": action,
-        "target": target,
         "instance": instance,
     }
 

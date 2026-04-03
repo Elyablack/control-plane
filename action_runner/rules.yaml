@@ -78,8 +78,7 @@ rules:
 
         - name: enqueue_mac_action
           payload:
-            action: "soft_quit"
-            target: "Music"
+            action: "soft_quit_allowlisted_candidate"
             instance: "{{ instance }}"
             severity: "{{ severity }}"
     cooldown_seconds: 300
