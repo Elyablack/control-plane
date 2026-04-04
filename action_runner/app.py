@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 from .config import DEFAULT_TASK_PRIORITY, HOST, PORT, TASK_PRIORITY_BY_SEVERITY
 from .events import normalize_alertmanager_payload
 from .executor import execute_action, now_utc
+from .metrics import PROMETHEUS_CONTENT_TYPE, render_metrics
 from .rule_loader import load_rules
 from .rules import decide_alert_action
 from .state import (
@@ -78,6 +79,14 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _text_response(self, status: int, body: str, content_type: str) -> None:
+        payload = body.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
     def _read_json(self) -> dict[str, Any]:
         content_length = int(self.headers.get("Content-Length", "0"))
         raw = self.rfile.read(content_length) if content_length > 0 else b"{}"
@@ -99,6 +108,18 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
                 },
             )
             return
+
+        if path == "/metrics":
+            try:
+                self._text_response(
+                    HTTPStatus.OK,
+                    render_metrics(),
+                    PROMETHEUS_CONTENT_TYPE,
+                )
+                return
+            except Exception as exc:
+                self._json_response(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
+                return
 
         if path == "/runs":
             self._json_response(HTTPStatus.OK, {"runs": list_runs()})
