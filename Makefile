@@ -20,7 +20,8 @@ help:
 	@echo "  make mac-clean-logs     - clear mac logs"
 	@echo "  make mac-status         - show mac launchd status and logs"
 	@echo "  make mac-smoke          - dry-run test for mac agents"
-	@echo "  make full-check         - runner + mac health check"
+	@echo "  make mac-stats          - show current mac memory, swap and top process info"
+	@echo "  make full-check         - runner and mac health check"
 
 .PHONY: check
 check: check-runner check-mac
@@ -95,6 +96,10 @@ mac-status:
 mac-smoke:
 	ssh $(MAC_HOST) "cd /Users/elvira/scripts && python3 -m mac_memory_guard.report_agent --dry-run"
 	ssh $(MAC_HOST) "cd /Users/elvira/scripts && python3 -m mac_memory_guard.worker_agent --dry-run"
+
+.PHONY: mac-stats
+mac-stats:
+	ssh $(MAC_HOST) "cd /Users/elvira/scripts && python3 -m mac_memory_guard.mac_agent --print-stats"
 
 .PHONY: full-check
 full-check: check mac-smoke
