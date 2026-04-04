@@ -15,16 +15,16 @@ from .rules import decide_alert_action
 from .state import (
     create_decision,
     create_task,
+    finish_task,
     get_decision,
+    get_next_task,
     get_run,
     get_task,
     init_db,
     list_decisions,
     list_runs,
     list_tasks,
-    get_next_task,
     start_task,
-    finish_task,
 )
 from .worker import executor_worker_loop, notify_worker_loop
 
@@ -35,8 +35,40 @@ def _priority_for_severity(severity: str) -> int:
     return TASK_PRIORITY_BY_SEVERITY.get(severity.lower(), DEFAULT_TASK_PRIORITY)
 
 
+def _queue_notify_task(
+    *,
+    decision_id: int | None,
+    severity: str,
+    message: str,
+    description: str,
+    event: str,
+    status: str = "firing",
+    source: str = "action-runner",
+) -> int:
+    task_payload = {
+        "action": "notify_tg",
+        "payload": {
+            "message": message,
+            "description": description,
+            "source": source,
+            "event": event,
+            "severity": severity,
+            "status": status,
+        },
+        "alert_key": None,
+    }
+
+    return create_task(
+        decision_id=decision_id,
+        task_type="notify",
+        payload=json.dumps(task_payload, ensure_ascii=False, sort_keys=True),
+        priority=_priority_for_severity(severity),
+        created_at=now_utc(),
+    )
+
+
 class ActionRunnerHandler(BaseHTTPRequestHandler):
-    server_version = "action-runner/4.0"
+    server_version = "action-runner/4.1"
 
     def _json_response(self, status: int, payload: dict[str, Any]) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -54,9 +86,6 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
             raise ValueError("JSON body must be an object")
         return data
 
-    # ------------------------
-    # GET
-    # ------------------------
     def do_GET(self) -> None:
         path = urlparse(self.path).path
 
@@ -83,7 +112,6 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
             self._json_response(HTTPStatus.OK, {"tasks": list_tasks()})
             return
 
-        # -------- mac agent: fetch task --------
         if path == "/tasks/mac/next":
             try:
                 task = get_next_task(["mac_action"])
@@ -143,13 +171,9 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
 
         self._json_response(HTTPStatus.NOT_FOUND, {"error": "not found"})
 
-    # ------------------------
-    # POST
-    # ------------------------
     def do_POST(self) -> None:
         path = urlparse(self.path).path
 
-        # -------- manual action --------
         if path == "/actions/run":
             try:
                 data = self._read_json()
@@ -168,31 +192,73 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
                 self._json_response(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
                 return
 
-        # -------- mac agent: complete task --------
         if path == "/tasks/mac/complete":
             try:
                 data = self._read_json()
 
-                task_id = data["task_id"]
-                status = data.get("status", "success")
+                task_id = int(data["task_id"])
+                status = str(data.get("status", "success")).strip()
                 result = data.get("result", {})
+                if not isinstance(result, dict):
+                    raise ValueError("field 'result' must be an object")
+
+                current_task = get_task(task_id)
+                if current_task is None:
+                    self._json_response(HTTPStatus.NOT_FOUND, {"error": "task not found"})
+                    return
 
                 finish_task(
                     task_id,
                     status=status,
                     finished_at=now_utc(),
-                    result_json=json.dumps(result, ensure_ascii=False),
-                    error=None,
+                    result_json=json.dumps(result, ensure_ascii=False, sort_keys=True),
+                    error=result.get("error") if isinstance(result.get("error"), str) else None,
                 )
 
-                self._json_response(HTTPStatus.OK, {"status": "ok"})
+                notify_task_id: int | None = None
+
+                if current_task["task_type"] == "mac_action" and status != "success":
+                    raw_payload = current_task.get("payload") or "{}"
+                    try:
+                        task_payload = json.loads(raw_payload)
+                    except Exception:
+                        task_payload = {}
+
+                    instance = str(task_payload.get("instance", "unknown")).strip() or "unknown"
+                    action = str(task_payload.get("action", "unknown")).strip() or "unknown"
+                    target = str(task_payload.get("target", "")).strip()
+                    error_text = str(result.get("error", "unknown remediation failure")).strip()
+
+                    description_lines = [
+                        "Remote mac remediation failed",
+                        "",
+                        f"task_id: {task_id}",
+                        f"instance: {instance}",
+                        f"action: {action}",
+                    ]
+                    if target:
+                        description_lines.append(f"target: {target}")
+                    description_lines.append(f"error: {error_text}")
+
+                    notify_task_id = _queue_notify_task(
+                        decision_id=current_task.get("decision_id"),
+                        severity="critical",
+                        message=f"[MAC][REMEDIATION FAILED] {action} on {instance}",
+                        description="\n".join(description_lines),
+                        event="mac_remediation_failed",
+                    )
+
+                response = {"status": "ok"}
+                if notify_task_id is not None:
+                    response["notify_task_id"] = notify_task_id
+
+                self._json_response(HTTPStatus.OK, response)
                 return
 
             except Exception as exc:
                 self._json_response(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
                 return
 
-        # -------- alertmanager --------
         if path == "/events/alertmanager":
             try:
                 data = self._read_json()
@@ -215,6 +281,7 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
                         "rule_name": decision.get("rule_name"),
                     }
 
+                    action_name: str | None = decision.get("action")
                     decision_id = create_decision(
                         source="alertmanager",
                         alertname=alert["alertname"],
@@ -226,7 +293,7 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
                         summary=alert["summary"],
                         decision=decision["decision"],
                         reason=decision["reason"],
-                        action=None,
+                        action=action_name if action_name else ("chain" if decision["decision"] == "execute_chain" else None),
                         run_id=None,
                         created_at=now_utc(),
                     )
@@ -234,25 +301,46 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
                     base["decision_id"] = decision_id
                     task_priority = _priority_for_severity(alert["severity"])
 
-                    if decision["decision"] == "execute_chain":
+                    if decision["decision"] == "execute":
+                        task_payload = {
+                            "action": decision["action"],
+                            "payload": decision["payload"],
+                            "alert_key": decision.get("alert_key"),
+                        }
+                        task_id = create_task(
+                            decision_id=decision_id,
+                            task_type="action",
+                            payload=json.dumps(task_payload, ensure_ascii=False, sort_keys=True),
+                            priority=task_priority,
+                            created_at=now_utc(),
+                        )
+                        base["task_id"] = task_id
+
+                    elif decision["decision"] == "execute_chain":
+                        chain_context = {
+                            "alertname": alert["alertname"],
+                            "alert_status": alert["status"],
+                            "severity": alert["severity"],
+                            "instance": alert["instance"],
+                            "job": alert["job"],
+                            "summary": alert["summary"],
+                            "fingerprint": alert["fingerprint"],
+                            "rule_name": decision.get("rule_name") or "",
+                        }
+
                         task_payload = {
                             "steps": decision["steps"],
-                            "chain_context": {
-                                "alertname": alert["alertname"],
-                                "severity": alert["severity"],
-                                "instance": alert["instance"],
-                                "summary": alert["summary"],
-                            },
+                            "chain_context": chain_context,
+                            "alert_key": decision.get("alert_key"),
                         }
 
                         task_id = create_task(
                             decision_id=decision_id,
                             task_type="chain",
-                            payload=json.dumps(task_payload, ensure_ascii=False),
+                            payload=json.dumps(task_payload, ensure_ascii=False, sort_keys=True),
                             priority=task_priority,
                             created_at=now_utc(),
                         )
-
                         base["task_id"] = task_id
                         base["steps"] = decision["steps"]
 
@@ -267,7 +355,6 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
                     },
                 )
                 return
-
             except Exception as exc:
                 self._json_response(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
                 return
@@ -283,8 +370,19 @@ def main() -> None:
     init_db()
     LOADED_RULES = load_rules()
 
-    threading.Thread(target=executor_worker_loop, daemon=True).start()
-    threading.Thread(target=notify_worker_loop, daemon=True).start()
+    executor_thread = threading.Thread(
+        target=executor_worker_loop,
+        name="executor-worker",
+        daemon=True,
+    )
+    executor_thread.start()
+
+    notify_thread = threading.Thread(
+        target=notify_worker_loop,
+        name="notify-worker",
+        daemon=True,
+    )
+    notify_thread.start()
 
     server = ThreadingHTTPServer((HOST, PORT), ActionRunnerHandler)
     server.serve_forever()

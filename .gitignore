@@ -1,6 +1,8 @@
 # Python
 __pycache__/
 *.pyc
+.pytest_cache/
+.venv/
 
 # Logs
 logs/
@@ -17,3 +19,7 @@ state/
 
 # Ansible temp
 *.retry
+
+#
+.DS_Store
+
