@@ -218,10 +218,12 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
                 data = self._read_json()
 
                 task_id = int(data["task_id"])
-                status = str(data.get("status", "success")).strip()
+                status = str(data.get("status", "success")).strip().lower()
                 result = data.get("result", {})
                 if not isinstance(result, dict):
                     raise ValueError("field 'result' must be an object")
+                if status not in {"success", "skipped", "failed"}:
+                    raise ValueError("field 'status' must be one of: success, skipped, failed")
 
                 current_task = get_task(task_id)
                 if current_task is None:
@@ -233,12 +235,12 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
                     status=status,
                     finished_at=now_utc(),
                     result_json=json.dumps(result, ensure_ascii=False, sort_keys=True),
-                    error=result.get("error") if isinstance(result.get("error"), str) else None,
+                    error=result.get("error") if status == "failed" and isinstance(result.get("error"), str) else None,
                 )
 
                 notify_task_id: int | None = None
 
-                if current_task["task_type"] == "mac_action" and status != "success":
+                if current_task["task_type"] == "mac_action" and status == "failed":
                     raw_payload = current_task.get("payload") or "{}"
                     try:
                         task_payload = json.loads(raw_payload)
@@ -247,7 +249,7 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
 
                     instance = str(task_payload.get("instance", "unknown")).strip() or "unknown"
                     action = str(task_payload.get("action", "unknown")).strip() or "unknown"
-                    target = str(task_payload.get("target", "")).strip()
+                    target = str(result.get("target", task_payload.get("target", ""))).strip()
                     error_text = str(result.get("error", "unknown remediation failure")).strip()
 
                     description_lines = [
@@ -269,7 +271,10 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
                         event="mac_remediation_failed",
                     )
 
-                response = {"status": "ok"}
+                response = {
+                    "status": "ok",
+                    "task_status": status,
+                }
                 if notify_task_id is not None:
                     response["notify_task_id"] = notify_task_id
 
