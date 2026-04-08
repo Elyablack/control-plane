@@ -5,8 +5,14 @@ from typing import Iterable
 
 from .state import get_conn
 
-
 PROMETHEUS_CONTENT_TYPE = "text/plain; version=0.0.4; charset=utf-8"
+
+KNOWN_TASK_TYPES = (
+    "action",
+    "chain",
+    "notify",
+    "mac_action",
+)
 
 
 def _escape_label(value: str) -> str:
@@ -131,21 +137,27 @@ def render_metrics() -> str:
 
     lines.append("# HELP action_runner_queue_depth Current pending and running tasks by type.")
     lines.append("# TYPE action_runner_queue_depth gauge")
-    for task_type, count in _fetchall(
-        """
-        SELECT task_type, COUNT(*)
-        FROM tasks
-        WHERE status IN ('pending', 'running')
-        GROUP BY task_type
-        ORDER BY task_type
-        """
-    ):
+
+    queue_counts = {
+        str(task_type): int(count)
+        for task_type, count in _fetchall(
+            """
+            SELECT task_type, COUNT(*)
+            FROM tasks
+            WHERE status IN ('pending', 'running')
+            GROUP BY task_type
+            ORDER BY task_type
+            """
+        )
+    }
+
+    for task_type in KNOWN_TASK_TYPES:
         lines.append(
             _metric_line(
                 "action_runner_queue_depth",
-                int(count),
+                queue_counts.get(task_type, 0),
                 {
-                    "task_type": str(task_type),
+                    "task_type": task_type,
                 },
             )
         )
@@ -162,7 +174,12 @@ def render_metrics() -> str:
 
     lines.append("# HELP action_runner_last_task_unixtime Latest task timestamp in unix seconds.")
     lines.append("# TYPE action_runner_last_task_unixtime gauge")
-    last_task = _fetchall("SELECT MAX(created_at) FROM tasks")
+    last_task = _fetchall(
+        """
+        SELECT MAX(COALESCE(finished_at, started_at, created_at))
+        FROM tasks
+        """
+    )
     lines.append(
         _metric_line(
             "action_runner_last_task_unixtime",
@@ -172,7 +189,12 @@ def render_metrics() -> str:
 
     lines.append("# HELP action_runner_last_run_unixtime Latest run timestamp in unix seconds.")
     lines.append("# TYPE action_runner_last_run_unixtime gauge")
-    last_run = _fetchall("SELECT MAX(started_at) FROM runs")
+    last_run = _fetchall(
+        """
+        SELECT MAX(COALESCE(finished_at, started_at))
+        FROM runs
+        """
+    )
     lines.append(
         _metric_line(
             "action_runner_last_run_unixtime",
