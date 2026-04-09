@@ -15,6 +15,8 @@ ALLOWED_ACTIONS = {
     "verify_backup",
     "notify_tg",
     "enqueue_mac_action",
+    "run_admin_host_audit",
+    "verify_admin_host_audit",
 }
 
 BACKUP_SCRIPT = "/srv/control-plane/backup/run_backup.sh"
