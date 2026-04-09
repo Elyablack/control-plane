@@ -45,7 +45,7 @@ The project currently includes:
 
 ## What this project does
 
-control-plane sits downstream from observability.
+`control-plane` sits downstream from observability.
 
 It is designed to answer:
 
@@ -167,7 +167,7 @@ The system currently supports three main decision types:
 
 The alert is recorded, but no action is queued.
 
-Used for:
+Typical use cases:
 
 - intentionally ignored alerts
 - known-noise conditions
@@ -177,7 +177,7 @@ Used for:
 
 A single action is queued and executed.
 
-Used for:
+Typical use cases:
 
 - direct notify
 - single-step operational tasks
@@ -186,7 +186,7 @@ Used for:
 
 A multi-step workflow is queued.
 
-Used for:
+Typical use cases:
 
 - backup remediation
 - multi-agent escalation
@@ -194,7 +194,7 @@ Used for:
 
 ---
 
-## Current action flow examples
+## Example flows
 
 ### Example 1 — ignore
 
@@ -266,27 +266,31 @@ The action runner exposes a read-only API for pipeline inspection, plus ingestio
 
 ### Health and metrics
 
-- GET /healthz
-- GET /metrics
+- `GET /healthz`
+- `GET /metrics`
 
 ### Read-only pipeline state
 
-- GET /runs
-- GET /runs/{id}
-- GET /decisions
-- GET /decisions/{id}
-- GET /tasks
-- GET /tasks/{id}
+- `GET /runs`
+- `GET /runs/{id}`
+- `GET /decisions`
+- `GET /decisions/{id}`
+- `GET /tasks`
+- `GET /tasks/{id}`
 
 ### Task endpoints for remote mac agent
 
-- GET /tasks/mac/next
-- POST /tasks/mac/complete
+- `GET /tasks/mac/next`
+- `POST /tasks/mac/complete`
 
 ### Action and event ingestion
 
-- POST /actions/run
-- POST /events/alertmanager
+- `POST /actions/run`
+- `POST /events/alertmanager`
+
+Detailed examples:
+
+- [`docs/api.md`](docs/api.md)
 
 ---
 
@@ -294,22 +298,16 @@ The action runner exposes a read-only API for pipeline inspection, plus ingestio
 
 The service exports Prometheus metrics for pipeline visibility.
 
-These metrics are used by the separate monitoring stack to build:
-	
-- control-plane summary views
-- task/run status panels
-- decision mix panels
-- queue depth views
-- remediation result dashboards
-
 Typical metric areas include:
-	
+
 - decisions by type
 - tasks by type and status
 - runs by action and status
 - mac remediation result counts
 - queue depth
-- latest decision/task/run timestamps
+- latest decision, task, and run timestamps
+
+These metrics are used by the separate monitoring stack to build control-plane views and dashboards.
 
 ---
 
@@ -336,6 +334,10 @@ Supported action types:
 - chain
 
 This gives the system a clear policy layer between incoming alerts and operational execution.
+
+Architecture and rule behavior are documented further in:
+
+- [`docs/architecture.md`](docs/architecture.md)
 
 ---
 
@@ -396,22 +398,31 @@ Related repository:
 
 ---
 
+## Documentation
+
+Additional project documentation:
+
+- [`docs/architecture.md`](docs/architecture.md) — system overview and pipeline architecture
+- [`docs/api.md`](docs/api.md) — practical API usage and curl examples
+
+---
+
 ## Quick start
 
-1. Review rules
+### 1. Review rules
 
 ```
 cd /srv/control-plane
 sed -n '1,240p' action_runner/rules.yaml
 ```
 
-2. Compile-check the runner
+### 2. Compile-check the runner
 
 ```
 python3 -m py_compile action_runner/*.py action_runner/actions/*.py
 ```
 
-3. Start or restart the service
+### 3. Start or restart the service
 
 If deployed with systemd:
 
@@ -420,14 +431,14 @@ sudo systemctl restart action-runner
 systemctl status action-runner.service --no-pager -l
 ```
 
-4. Verify health
+### 4. Verify health
 
 ```
 curl -fsS http://127.0.0.1:8088/healthz | jq
 curl -fsS http://127.0.0.1:8088/metrics | head
 ```
 
-5. Inspect pipeline state
+### 5. Inspect pipeline state
 
 ```
 curl -fsS http://127.0.0.1:8088/decisions | jq
@@ -441,7 +452,7 @@ curl -fsS http://127.0.0.1:8088/runs | jq
 
 The system can be tested at several levels.
 
-1. Rule evaluation
+### 1. Rule evaluation
 
 Send synthetic Alertmanager payloads to:
 
@@ -456,14 +467,14 @@ Validate that the correct decision is created:
 - cooldown
 - execute_chain
 
-2. Queue execution
+### 2. Queue execution
 
 Inspect queued tasks and resulting runs through:
 
 - /tasks
 - /runs
 
-3. Backup chain validation
+### 3. Backup chain validation
 
 Validate:
 
@@ -473,7 +484,7 @@ Validate:
 - verify_backup run exists
 - notify step completed or queued
 
-4. Distributed mac remediation
+### 4. Distributed mac remediation
 
 Validate:
 
@@ -483,6 +494,10 @@ Validate:
 - remote mac worker polls task
 - task completion is reported back
 
+See also:
+
+- [`docs/api.md`](docs/api.md)
+	
 ---
 
 ## Repository structure
@@ -510,6 +525,9 @@ Validate:
 │   └── run_backup.sh
 ├── deploy/
 │   └── mac/
+├── docs/
+│   └── api.md
+│   └── architecture.md
 ├── inventory/
 │   └── hosts
 ├── logs/
@@ -531,10 +549,10 @@ The orchestration pipeline is already functional and includes:
 - remote mac remediation
 - read-only pipeline visibility
 
-Documentation is being added incrementally.
+Documentation is being added incrementally through focused docs rather than a single oversized README.
 
 ---
 
-License
+## License
 
 MIT
