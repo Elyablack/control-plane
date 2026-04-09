@@ -91,3 +91,24 @@ rules:
     action:
       type: ignore
     cooldown_seconds: 0
+
+  - name: admin_host_audit_weekly
+    enabled: true
+    match:
+      alertname: AdminHostAuditWeekly
+      status: firing
+    action:
+      type: chain
+      steps:
+        - name: run_admin_host_audit
+          payload:
+            host: admin
+            timeout_seconds: 120
+
+        - name: verify_admin_host_audit
+          payload:
+            host: admin
+            log_dir: /var/log/mac-audit
+            max_age_seconds: 1800
+            timeout_seconds: 30
+    cooldown_seconds: 3600
