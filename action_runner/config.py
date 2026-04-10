@@ -1,33 +1,54 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
-BASE_DIR = Path("/srv/control-plane")
+
+def _env_str(name: str, default: str = "") -> str:
+    return os.getenv(name, default).strip()
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name, str(default)).strip()
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be int, got {raw!r}") from exc
+
+
+BASE_DIR = Path(_env_str("CONTROL_PLANE_BASE_DIR", "/srv/control-plane"))
 STATE_DIR = BASE_DIR / "state"
 DB_PATH = STATE_DIR / "action_runner.db"
 RULES_PATH = BASE_DIR / "action_runner" / "rules.yaml"
 SCHEDULES_PATH = BASE_DIR / "action_runner" / "schedules.yaml"
 
-HOST = "0.0.0.0"
-PORT = 8088
+HOST = _env_str("ACTION_RUNNER_HOST", "0.0.0.0")
+PORT = _env_int("ACTION_RUNNER_PORT", 8088)
 
 ALLOWED_ACTIONS = {
     "run_backup",
     "verify_backup",
     "notify_tg",
+    "notify_email",
     "enqueue_mac_action",
     "run_admin_host_audit",
     "verify_admin_host_audit",
 }
 
-BACKUP_SCRIPT = "/srv/control-plane/backup/run_backup.sh"
-TG_RELAY_URL = "http://127.0.0.1:8082/"
-TG_RELAY_TIMEOUT_SECONDS = 11
+BACKUP_SCRIPT = _env_str("BACKUP_SCRIPT", "/srv/control-plane/backup/run_backup.sh")
+TG_RELAY_URL = _env_str("TG_RELAY_URL", "http://127.0.0.1:8082/").rstrip("/") + "/"
+TG_RELAY_TIMEOUT_SECONDS = _env_int("TG_RELAY_TIMEOUT_SECONDS", 11)
+
+RESEND_API_KEY = _env_str("RESEND_API_KEY")
+RESEND_FROM = _env_str("RESEND_FROM", "onboarding@resend.dev")
+RESEND_TO = _env_str("RESEND_TO", "delivered@resend.dev")
+RESEND_API_URL = _env_str("RESEND_API_URL", "https://api.resend.com/emails")
+RESEND_TIMEOUT_SECONDS = _env_int("RESEND_TIMEOUT_SECONDS", 15)
 
 DEFAULT_TASK_PRIORITY = 50
 TASK_PRIORITY_BY_SEVERITY = {
     "critical": 100,
-    "warning": 700,
+    "warning": 70,
     "info": 50,
     "test": 10,
 }
