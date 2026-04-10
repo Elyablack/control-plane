@@ -7,6 +7,7 @@ from .config import HOST, PORT
 from .http_handler import ActionRunnerHandler
 from .rule_loader import load_rules
 from .runtime import LOADED_RULES
+from .scheduler import scheduler_loop
 from .state import init_db
 from .worker import executor_worker_loop, notify_worker_loop
 
@@ -30,6 +31,13 @@ def main() -> None:
         daemon=True,
     )
     notify_thread.start()
+
+    scheduler_thread = threading.Thread(
+        target=scheduler_loop,
+        name="scheduler",
+        daemon=True,
+    )
+    scheduler_thread.start()
 
     server = ThreadingHTTPServer((HOST, PORT), ActionRunnerHandler)
     server.serve_forever()

@@ -86,6 +86,17 @@ def init_db() -> None:
             """
         )
 
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS scheduled_runs (
+                schedule_name TEXT NOT NULL,
+                slot_key TEXT NOT NULL,
+                triggered_at TEXT NOT NULL,
+                PRIMARY KEY (schedule_name, slot_key)
+            )
+            """
+        )
+
         conn.commit()
 
 
@@ -537,5 +548,32 @@ def finish_task(
             WHERE id = ?
             """,
             (status, finished_at, result_json, error, task_id),
+        )
+        conn.commit()
+
+
+def has_scheduled_run(schedule_name: str, slot_key: str) -> bool:
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT 1
+            FROM scheduled_runs
+            WHERE schedule_name = ? AND slot_key = ?
+            LIMIT 1
+            """,
+            (schedule_name, slot_key),
+        ).fetchone()
+
+    return row is not None
+
+
+def mark_scheduled_run(schedule_name: str, slot_key: str, triggered_at: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO scheduled_runs (schedule_name, slot_key, triggered_at)
+            VALUES (?, ?, ?)
+            """,
+            (schedule_name, slot_key, triggered_at),
         )
         conn.commit()
