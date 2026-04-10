@@ -124,7 +124,11 @@ rules:
           payload:
             format: message
             message: "[ADMIN][{{ analysis_level|upper }}] unattended audit findings on {{ instance }}"
-            description: "{{ analysis_summary }}"
+            description: |
+              findings: {{ analysis_findings_count }}
+              {{ analysis_summary }}
+
+              log: {{ analysis_log_path }}
             source: "action-runner"
             event: "admin_host_audit_findings"
             severity: "{{ analysis_level }}"
