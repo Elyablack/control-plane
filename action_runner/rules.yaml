@@ -122,6 +122,7 @@ rules:
           when:
             analysis_level_in: ["warning", "critical"]
           payload:
+            format: message
             message: "[ADMIN][{{ analysis_level|upper }}] unattended audit findings on {{ instance }}"
             description: "{{ analysis_summary }}"
             source: "action-runner"

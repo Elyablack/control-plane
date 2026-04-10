@@ -16,6 +16,38 @@ def _as_list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
 
 
+def _normalize_step_when(rule_name: str, step_index: int, raw_when: Any) -> dict[str, Any] | None:
+    if raw_when is None:
+        return None
+
+    if not isinstance(raw_when, dict):
+        raise ValueError(f"rule '{rule_name}' step #{step_index} when must be an object")
+
+    normalized_when: dict[str, Any] = {}
+
+    if "analysis_level_in" in raw_when:
+        levels = raw_when.get("analysis_level_in")
+        if not isinstance(levels, list) or not levels:
+            raise ValueError(
+                f"rule '{rule_name}' step #{step_index} when.analysis_level_in must be a non-empty list"
+            )
+
+        normalized_levels = [str(v).strip() for v in levels if str(v).strip()]
+        if not normalized_levels:
+            raise ValueError(
+                f"rule '{rule_name}' step #{step_index} when.analysis_level_in must contain values"
+            )
+
+        normalized_when["analysis_level_in"] = normalized_levels
+
+    unknown_keys = set(raw_when) - {"analysis_level_in"}
+    if unknown_keys:
+        unknown = ", ".join(sorted(unknown_keys))
+        raise ValueError(f"rule '{rule_name}' step #{step_index} has unsupported when keys: {unknown}")
+
+    return normalized_when or None
+
+
 def load_rules(path: Path | None = None) -> list[dict[str, Any]]:
     rules_path = path or RULES_PATH
 
@@ -97,14 +129,19 @@ def load_rules(path: Path | None = None) -> list[dict[str, Any]]:
                 if retry_delay_seconds < 0:
                     raise ValueError(f"rule '{name}' step #{step_index} retry_delay_seconds must be >= 0")
 
-                steps.append(
-                    {
-                        "name": step_name,
-                        "payload": step_payload,
-                        "retries": retries,
-                        "retry_delay_seconds": retry_delay_seconds,
-                    }
-                )
+                normalized_when = _normalize_step_when(name, step_index, raw_step.get("when"))
+
+                step_data = {
+                    "name": step_name,
+                    "payload": step_payload,
+                    "retries": retries,
+                    "retry_delay_seconds": retry_delay_seconds,
+                }
+
+                if normalized_when is not None:
+                    step_data["when"] = normalized_when
+
+                steps.append(step_data)
 
             normalized_action["steps"] = steps
 
@@ -123,4 +160,3 @@ def load_rules(path: Path | None = None) -> list[dict[str, Any]]:
         )
 
     return validated
-
