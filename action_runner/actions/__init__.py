@@ -4,6 +4,7 @@ from typing import Any, Callable
 
 from .admin import run_admin_host_audit, verify_admin_host_audit
 from .backup import run_backup, verify_backup
+from .email import notify_email
 from .notify import notify_tg
 from .mac import enqueue_mac_action
 from .types import ActionResult
@@ -17,4 +18,5 @@ ACTION_HANDLERS: dict[str, ActionHandler] = {
     "enqueue_mac_action": enqueue_mac_action,
     "run_admin_host_audit": run_admin_host_audit,
     "verify_admin_host_audit": verify_admin_host_audit,
+    "notify_email": notify_email,
 }
