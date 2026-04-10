@@ -101,6 +101,8 @@ def execute_action(action: str, payload: dict[str, Any], *, trigger_type: str) -
             "finished_at": finished_at,
             "exit_code": outcome.exit_code,
             "detail_url": f"/runs/{run_id}",
+            "stdout": outcome.stdout,
+            "stderr": outcome.stderr,
         }
         if outcome.error:
             response["error"] = outcome.error
@@ -110,6 +112,7 @@ def execute_action(action: str, payload: dict[str, Any], *, trigger_type: str) -
 
 
 _TEMPLATE_RE = re.compile(r"\{\{\s*([a-zA-Z0-9_]+)(\|upper|\|lower)?\s*\}\}")
+_RESULT_JSON_RE = re.compile(r"RESULT_JSON:(\{.*\})$", re.DOTALL)
 
 
 def _stringify(value: Any) -> str:
@@ -145,6 +148,51 @@ def _render_payload(value: Any, context: dict[str, Any]) -> Any:
 
 def _chain_should_continue(step_status: str) -> bool:
     return step_status in {"success", "skipped"}
+
+
+def _extract_result_json(stdout: str) -> dict[str, Any]:
+    if not stdout:
+        return {}
+
+    match = _RESULT_JSON_RE.search(stdout.strip())
+    if not match:
+        return {}
+
+    raw = match.group(1)
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return {}
+
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _update_context_from_step_result(context: dict[str, Any], result: dict[str, Any]) -> None:
+    stdout = str(result.get("stdout", "") or "")
+    extra = _extract_result_json(stdout)
+    if not extra:
+        return
+
+    context.update(extra)
+
+
+def _step_matches_when(step: dict[str, Any], context: dict[str, Any]) -> bool:
+    when = step.get("when")
+    if when is None:
+        return True
+
+    if not isinstance(when, dict):
+        raise ValueError("step.when must be an object")
+
+    analysis_level_in = when.get("analysis_level_in")
+    if analysis_level_in is not None:
+        if not isinstance(analysis_level_in, list):
+            raise ValueError("when.analysis_level_in must be a list")
+        current = str(context.get("analysis_level", "")).strip().lower()
+        allowed = {str(v).strip().lower() for v in analysis_level_in}
+        return current in allowed
+
+    raise ValueError(f"unsupported step.when condition: {sorted(when.keys())}")
 
 
 def execute_chain(
@@ -184,6 +232,27 @@ def execute_chain(
                 "last_run_id": last_run_id or "",
             }
         )
+
+        if not _step_matches_when(step, context):
+            step_entry = {
+                "step": index,
+                "action": action_name,
+                "skipped_by_condition": True,
+                "when": step.get("when"),
+                "result": {
+                    "status": "skipped",
+                    "reason": "step condition not matched",
+                },
+            }
+            step_results.append(step_entry)
+            context.update(
+                {
+                    "step_count": len(step_results),
+                    "last_action": action_name,
+                    "last_step_status": "skipped",
+                }
+            )
+            continue
 
         rendered_payload = _render_payload(raw_payload, context)
 
@@ -259,6 +328,9 @@ def execute_chain(
             }
         )
 
+        if final_result is not None:
+            _update_context_from_step_result(context, final_result)
+
         if final_result is None:
             final_chain_status = "failed"
             return {
@@ -268,6 +340,7 @@ def execute_chain(
                 "first_run_id": first_run_id,
                 "last_run_id": last_run_id,
                 "step_results": step_results,
+                "chain_context": context,
             }
 
         final_step_status = str(final_result.get("status", "failed"))
@@ -280,6 +353,7 @@ def execute_chain(
                 "first_run_id": first_run_id,
                 "last_run_id": last_run_id,
                 "step_results": step_results,
+                "chain_context": context,
             }
 
     final_chain_status = "success"
@@ -290,4 +364,5 @@ def execute_chain(
         "first_run_id": first_run_id,
         "last_run_id": last_run_id,
         "step_results": step_results,
+        "chain_context": context,
     }

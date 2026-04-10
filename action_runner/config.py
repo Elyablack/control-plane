@@ -33,6 +33,7 @@ ALLOWED_ACTIONS = {
     "enqueue_mac_action",
     "run_admin_host_audit",
     "verify_admin_host_audit",
+    "analyze_admin_host_audit",
 }
 
 BACKUP_SCRIPT = _env_str("BACKUP_SCRIPT", "/srv/control-plane/backup/run_backup.sh")

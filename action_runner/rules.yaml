@@ -111,4 +111,21 @@ rules:
             log_dir: /var/log/mac-audit
             max_age_seconds: 1800
             timeout_seconds: 30
+
+        - name: analyze_admin_host_audit
+          payload:
+            host: admin
+            log_dir: /var/log/mac-audit
+            timeout_seconds: 30
+
+        - name: notify_tg
+          when:
+            analysis_level_in: ["warning", "critical"]
+          payload:
+            message: "[ADMIN][{{ analysis_level|upper }}] unattended audit findings on {{ instance }}"
+            description: "{{ analysis_summary }}"
+            source: "action-runner"
+            event: "admin_host_audit_findings"
+            severity: "{{ analysis_level }}"
+            status: "firing"
     cooldown_seconds: 3600

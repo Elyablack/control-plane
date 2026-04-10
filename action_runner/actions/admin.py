@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
+from ..admin_audit import analyze_admin_audit_text, extract_log_path_from_prefixed_output
 from ..tools import ssh_run
 from .types import ActionResult
 
@@ -10,6 +12,8 @@ DEFAULT_ADMIN_AUDIT_COMMAND = "sudo /usr/local/bin/mac_audit.sh"
 DEFAULT_ADMIN_AUDIT_TIMEOUT_SECONDS = 120
 DEFAULT_VERIFY_TIMEOUT_SECONDS = 30
 DEFAULT_VERIFY_MAX_AGE_SECONDS = 1800
+DEFAULT_ANALYZE_TIMEOUT_SECONDS = 30
+DEFAULT_ANALYZE_LOG_DIR = "/var/log/mac-audit"
 MAX_STDOUT_TAIL_LINES = 20
 SAVED_PREFIX = "Saved: "
 
@@ -30,39 +34,51 @@ def _extract_saved_log_path(stdout: str) -> str | None:
     return None
 
 
-def run_admin_host_audit(payload: dict[str, Any]) -> ActionResult:
-    raw_host = payload.get("host", DEFAULT_ADMIN_AUDIT_HOST)
-    raw_timeout = payload.get("timeout_seconds", DEFAULT_ADMIN_AUDIT_TIMEOUT_SECONDS)
+def _require_host(payload: dict[str, Any]) -> str | ActionResult:
+    host = str(payload.get("host", DEFAULT_ADMIN_AUDIT_HOST)).strip()
+    if host:
+        return host
+    return ActionResult(
+        status="failed",
+        exit_code=1,
+        stdout="",
+        stderr="",
+        error="payload.host is required",
+    )
 
-    host = str(raw_host).strip()
-    if not host:
-        return ActionResult(
-            status="failed",
-            exit_code=1,
-            stdout="",
-            stderr="",
-            error="payload.host is required",
-        )
 
+def _require_positive_int(payload: dict[str, Any], key: str, default: int) -> int | ActionResult:
+    raw_value = payload.get(key, default)
     try:
-        timeout_seconds = int(raw_timeout)
+        value = int(raw_value)
     except (TypeError, ValueError):
         return ActionResult(
             status="failed",
             exit_code=1,
             stdout="",
             stderr="",
-            error=f"invalid timeout_seconds: {raw_timeout!r}",
+            error=f"invalid {key}: {raw_value!r}",
         )
 
-    if timeout_seconds <= 0:
+    if value <= 0:
         return ActionResult(
             status="failed",
             exit_code=1,
             stdout="",
             stderr="",
-            error="timeout_seconds must be > 0",
+            error=f"{key} must be > 0",
         )
+    return value
+
+
+def run_admin_host_audit(payload: dict[str, Any]) -> ActionResult:
+    host = _require_host(payload)
+    if isinstance(host, ActionResult):
+        return host
+
+    timeout_seconds = _require_positive_int(payload, "timeout_seconds", DEFAULT_ADMIN_AUDIT_TIMEOUT_SECONDS)
+    if isinstance(timeout_seconds, ActionResult):
+        return timeout_seconds
 
     raw_result = ssh_run(
         host=host,
@@ -110,23 +126,19 @@ def run_admin_host_audit(payload: dict[str, Any]) -> ActionResult:
 
 
 def verify_admin_host_audit(payload: dict[str, Any]) -> ActionResult:
-    raw_host = payload.get("host", DEFAULT_ADMIN_AUDIT_HOST)
-    raw_timeout = payload.get("timeout_seconds", DEFAULT_VERIFY_TIMEOUT_SECONDS)
-    raw_max_age = payload.get("max_age_seconds", DEFAULT_VERIFY_MAX_AGE_SECONDS)
-    raw_log_dir = payload.get("log_dir", "/var/log/mac-audit")
+    host = _require_host(payload)
+    if isinstance(host, ActionResult):
+        return host
 
-    host = str(raw_host).strip()
-    log_dir = str(raw_log_dir).strip()
+    timeout_seconds = _require_positive_int(payload, "timeout_seconds", DEFAULT_VERIFY_TIMEOUT_SECONDS)
+    if isinstance(timeout_seconds, ActionResult):
+        return timeout_seconds
 
-    if not host:
-        return ActionResult(
-            status="failed",
-            exit_code=1,
-            stdout="",
-            stderr="",
-            error="payload.host is required",
-        )
+    max_age_seconds = _require_positive_int(payload, "max_age_seconds", DEFAULT_VERIFY_MAX_AGE_SECONDS)
+    if isinstance(max_age_seconds, ActionResult):
+        return max_age_seconds
 
+    log_dir = str(payload.get("log_dir", DEFAULT_ANALYZE_LOG_DIR)).strip()
     if not log_dir:
         return ActionResult(
             status="failed",
@@ -134,36 +146,6 @@ def verify_admin_host_audit(payload: dict[str, Any]) -> ActionResult:
             stdout="",
             stderr="",
             error="payload.log_dir is required",
-        )
-
-    try:
-        timeout_seconds = int(raw_timeout)
-        max_age_seconds = int(raw_max_age)
-    except (TypeError, ValueError):
-        return ActionResult(
-            status="failed",
-            exit_code=1,
-            stdout="",
-            stderr="",
-            error=f"invalid timeout or max_age: timeout={raw_timeout!r} max_age={raw_max_age!r}",
-        )
-
-    if timeout_seconds <= 0:
-        return ActionResult(
-            status="failed",
-            exit_code=1,
-            stdout="",
-            stderr="",
-            error="timeout_seconds must be > 0",
-        )
-
-    if max_age_seconds <= 0:
-        return ActionResult(
-            status="failed",
-            exit_code=1,
-            stdout="",
-            stderr="",
-            error="max_age_seconds must be > 0",
         )
 
     command = (
@@ -254,6 +236,89 @@ def verify_admin_host_audit(payload: dict[str, Any]) -> ActionResult:
             f"log_mtime_unix={mtime_unix} "
             f"log_age_s={age_seconds}"
         ),
+        stderr="",
+        error=None,
+    )
+
+
+def analyze_admin_host_audit(payload: dict[str, Any]) -> ActionResult:
+    host = _require_host(payload)
+    if isinstance(host, ActionResult):
+        return host
+
+    timeout_seconds = _require_positive_int(payload, "timeout_seconds", DEFAULT_ANALYZE_TIMEOUT_SECONDS)
+    if isinstance(timeout_seconds, ActionResult):
+        return timeout_seconds
+
+    log_dir = str(payload.get("log_dir", DEFAULT_ANALYZE_LOG_DIR)).strip()
+    if not log_dir:
+        return ActionResult(
+            status="failed",
+            exit_code=1,
+            stdout="",
+            stderr="",
+            error="payload.log_dir is required",
+        )
+
+    command = (
+        "set -euo pipefail; "
+        f'latest="$(ls -1t {log_dir}/audit_*.log 2>/dev/null | head -n1)"; '
+        'if [ -z "${latest:-}" ]; then '
+        '  echo "NO_LOG"; '
+        "  exit 12; "
+        "fi; "
+        'if [ ! -s "$latest" ]; then '
+        '  echo "EMPTY_LOG|$latest"; '
+        "  exit 13; "
+        "fi; "
+        'echo "LOG_PATH:$latest"; '
+        'echo "__AUDIT_BODY_BEGIN__"; '
+        'cat "$latest"'
+    )
+
+    raw_result = ssh_run(
+        host=host,
+        command=command,
+        timeout_seconds=timeout_seconds,
+    )
+
+    if raw_result.status != "success":
+        return ActionResult(
+            status="failed",
+            exit_code=raw_result.exit_code,
+            stdout=f"host={host} audit_analyze=failed",
+            stderr=_tail_lines(raw_result.stderr, limit=20),
+            error=raw_result.error or "failed to fetch audit log",
+        )
+
+    log_path, audit_text = extract_log_path_from_prefixed_output(raw_result.stdout)
+    if not audit_text:
+        return ActionResult(
+            status="failed",
+            exit_code=1,
+            stdout=f"host={host} audit_analyze=failed",
+            stderr="",
+            error="audit log is empty or audit body marker is missing",
+        )
+
+    analysis = analyze_admin_audit_text(audit_text, log_path=log_path)
+
+    result_payload = {
+        "analysis_level": analysis.overall,
+        "analysis_findings_count": len(analysis.findings),
+        "analysis_summary": "; ".join(f"{f.severity}:{f.message}" for f in analysis.findings),
+        "analysis_log_path": analysis.log_path or "",
+    }
+
+    summary = (
+        f"{analysis.render_summary(host=host)}\n"
+        f"RESULT_JSON:{json.dumps(result_payload, ensure_ascii=False, sort_keys=True)}"
+    )
+
+    return ActionResult(
+        status="success",
+        exit_code=analysis.exit_code,
+        stdout=summary,
         stderr="",
         error=None,
     )
