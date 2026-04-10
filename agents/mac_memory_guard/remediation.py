@@ -8,8 +8,8 @@ from .logging_utils import log_error, log_info, log_warn
 
 PROTECTED_APPS = {
     "ChatGPT",
-    "Terminal",
-    "iTerm",
+    "Obsidian",
+    "iTerm2",
 }
 
 
