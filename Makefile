@@ -1,3 +1,4 @@
+# file: Makefile
 SHELL := /usr/bin/env bash
 
 PYTHON := python3
@@ -9,6 +10,7 @@ help:
 	@echo "  make check                 - compile-check runner and mac agent"
 	@echo "  make check-runner          - compile-check runner only"
 	@echo "  make check-mac             - compile-check mac agent only"
+	@echo "  make h                     - show action-runner health endpoint"
 	@echo "  make restart-runner        - restart action-runner systemd service"
 	@echo "  make status-runner         - show action-runner status"
 	@echo "  make logs-runner           - show action-runner logs"
@@ -30,6 +32,10 @@ check-runner:
 .PHONY: check-mac
 check-mac:
 	$(PYTHON) -m py_compile agents/mac_memory_guard/*.py
+
+.PHONY: h
+h:
+	curl -fsS http://127.0.0.1:8088/healthz | jq
 
 .PHONY: restart-runner
 restart-runner:
