@@ -32,30 +32,32 @@ def _normalize_fact(item: Any) -> tuple[str, str] | None:
     return None
 
 
-def _render_message_text(payload: dict[str, Any]) -> tuple[str, str]:
+def _render_message_parts(payload: dict[str, Any]) -> tuple[str, str]:
     title = _as_str(payload.get("title"), _as_str(payload.get("message"), "Notification from action-runner"))
     body = _as_str(payload.get("body"), _as_str(payload.get("description")))
     facts_raw = payload.get("facts", [])
 
-    lines: list[str] = [title]
+    fact_lines: list[str] = []
 
     if isinstance(facts_raw, list):
-        rendered_facts: list[str] = []
         for item in facts_raw:
             fact = _normalize_fact(item)
             if fact is None:
                 continue
-            rendered_facts.append(f"{fact[0]}={fact[1]}")
-        if rendered_facts:
-            lines.append("")
-            lines.extend(rendered_facts)
+            fact_lines.append(f"{fact[0]}: {fact[1]}")
+
+    detail_lines: list[str] = []
+
+    if fact_lines:
+        detail_lines.extend(fact_lines)
 
     if body:
-        lines.append("")
-        lines.append(body)
+        if detail_lines:
+            detail_lines.append("")
+        detail_lines.append(body)
 
-    text = "\n".join(lines).strip()
-    return title, text
+    details = "\n".join(detail_lines).strip()
+    return title, details
 
 
 def _build_alertmanager_like_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -99,7 +101,7 @@ def _build_alertmanager_like_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _build_message_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    title, text = _render_message_text(payload)
+    title, details = _render_message_parts(payload)
     event = _as_str(payload.get("event"), "action_runner_event")
     source = _as_str(payload.get("source"), "action-runner")
     severity = _as_str(payload.get("severity"), "info")
@@ -120,7 +122,7 @@ def _build_message_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 },
                 "annotations": {
                     "summary": title,
-                    "description": text,
+                    "description": details,
                 },
             }
         ],
