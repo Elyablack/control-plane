@@ -22,15 +22,14 @@ class AuditAnalysis:
     reboot_detected_recently: bool
     boot_time_unixtime: int | None
     uptime_seconds: int | None
-    backup_path_exists: bool
-    backup_path_writable: bool
+    timemachine_path_exists: bool
+    timemachine_path_writable: bool
     smb_healthy: bool
     ssh_healthy: bool
     tailscale_healthy: bool
     fail2ban_healthy: bool
     root_disk_used_percent: int | None
     root_inode_used_percent: int | None
-    backup_configs_age_seconds: int | None
     timemachine_age_seconds: int | None
     audit_log_age_seconds: int | None
 
@@ -86,16 +85,16 @@ def analyze_admin_audit_text(text: str, *, log_path: str | None = None) -> Audit
     network_services_section = _extract_section(text, "NETWORK + TAILSCALE", "SSH LISTEN")
     ssh_section = _extract_section(text, "SSH LISTEN", "UFW SUMMARY")
     fail2ban_section = _extract_section(text, "FAIL2BAN (status only)", "DISK ROOT")
-    smb_section = _extract_section(text, "SMB SERVICES", "BACKUP PATH")
-    backup_path_section = _extract_section(text, "BACKUP PATH", "BACKUP FRESHNESS")
-    sysstat_section = _extract_section(text, "SYSSTAT (summary)", "CRON RSYNC (last 5 entries)")
+    smb_section = _extract_section(text, "SMB SERVICES", "TIME MACHINE PATH")
+    timemachine_path_section = _extract_section(text, "TIME MACHINE PATH", "TIME MACHINE FRESHNESS")
+    sysstat_section = _extract_section(text, "SYSSTAT (summary)", "JOURNAL P3+ (current boot)")
 
     ssh_healthy = "ssh :22 not listening" not in ssh_section
     tailscale_healthy = _section_has_enabled_active_pair(network_services_section)
     fail2ban_healthy = "fail2ban inactive" not in fail2ban_section
     smb_healthy = _section_has_enabled_active_pair(smb_section) and "smb ports not listening" not in smb_section
-    backup_path_exists = "backup_path_exists: YES" in backup_path_section
-    backup_path_writable = "backup_path_writable: YES" in backup_path_section
+    timemachine_path_exists = "timemachine_path_exists: YES" in timemachine_path_section
+    timemachine_path_writable = "timemachine_path_writable: YES" in timemachine_path_section
 
     if "ip_ping: FAIL" in network_section:
         add("critical", "network_ping_failed", "external ping failed")
@@ -112,11 +111,11 @@ def analyze_admin_audit_text(text: str, *, log_path: str | None = None) -> Audit
     if not smb_healthy:
         add("critical", "smb_unhealthy", "smb service unhealthy")
 
-    if not backup_path_exists:
-        add("critical", "backup_path_missing", "backup path missing")
+    if not timemachine_path_exists:
+        add("critical", "timemachine_path_missing", "time machine path missing")
 
-    if backup_path_exists and not backup_path_writable:
-        add("critical", "backup_path_not_writable", "backup path not writable")
+    if timemachine_path_exists and not timemachine_path_writable:
+        add("critical", "timemachine_path_not_writable", "time machine path not writable")
 
     root_disk_percent = _extract_root_disk_percent(text)
     if root_disk_percent is not None:
@@ -146,9 +145,6 @@ def analyze_admin_audit_text(text: str, *, log_path: str | None = None) -> Audit
 
     if not fail2ban_healthy:
         add("warning", "fail2ban_unhealthy", "fail2ban inactive")
-
-    if "crontab entry NOT found" in text:
-        add("warning", "cron_rsync_missing", "cron rsync entry missing")
 
     if _contains_any(
         sysstat_section,
@@ -181,7 +177,6 @@ def analyze_admin_audit_text(text: str, *, log_path: str | None = None) -> Audit
     if smart_section and "SMART overall-health self-assessment test result: PASSED".lower() not in smart_section.lower():
         add("warning", "smart_unclear", "smart health check not clearly passed")
 
-    backup_configs_age_seconds = _extract_nonnegative_int(r"backup_configs_age_seconds:\s*(-?\d+)", text)
     timemachine_age_seconds = _extract_nonnegative_int(r"timemachine_age_seconds:\s*(-?\d+)", text)
     audit_log_age_seconds = _extract_nonnegative_int(r"audit_log_age_seconds:\s*(-?\d+)", text)
 
@@ -202,15 +197,14 @@ def analyze_admin_audit_text(text: str, *, log_path: str | None = None) -> Audit
         reboot_detected_recently=reboot_detected_recently,
         boot_time_unixtime=boot_time_unixtime,
         uptime_seconds=uptime_seconds,
-        backup_path_exists=backup_path_exists,
-        backup_path_writable=backup_path_writable,
+        timemachine_path_exists=timemachine_path_exists,
+        timemachine_path_writable=timemachine_path_writable,
         smb_healthy=smb_healthy,
         ssh_healthy=ssh_healthy,
         tailscale_healthy=tailscale_healthy,
         fail2ban_healthy=fail2ban_healthy,
         root_disk_used_percent=root_disk_percent,
         root_inode_used_percent=root_inode_percent,
-        backup_configs_age_seconds=backup_configs_age_seconds,
         timemachine_age_seconds=timemachine_age_seconds,
         audit_log_age_seconds=audit_log_age_seconds,
     )

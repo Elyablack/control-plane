@@ -1,3 +1,4 @@
+# file: action_runner/admin_audit_metrics.py
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -61,13 +62,13 @@ def render_admin_audit_metrics(
         lines.append("# TYPE admin_host_uptime_seconds gauge")
         lines.append(f'admin_host_uptime_seconds{{host="{host}"}} {analysis.uptime_seconds}')
 
-    lines.append("# HELP admin_host_audit_backup_path_exists Whether backup path exists.")
-    lines.append("# TYPE admin_host_audit_backup_path_exists gauge")
-    lines.append(f'admin_host_audit_backup_path_exists{{host="{host}"}} {1 if analysis.backup_path_exists else 0}')
+    lines.append("# HELP admin_host_audit_timemachine_path_exists Whether Time Machine path exists.")
+    lines.append("# TYPE admin_host_audit_timemachine_path_exists gauge")
+    lines.append(f'admin_host_audit_timemachine_path_exists{{host="{host}"}} {1 if analysis.timemachine_path_exists else 0}')
 
-    lines.append("# HELP admin_host_audit_backup_path_writable Whether backup path is writable.")
-    lines.append("# TYPE admin_host_audit_backup_path_writable gauge")
-    lines.append(f'admin_host_audit_backup_path_writable{{host="{host}"}} {1 if analysis.backup_path_writable else 0}')
+    lines.append("# HELP admin_host_audit_timemachine_path_writable Whether Time Machine path is writable.")
+    lines.append("# TYPE admin_host_audit_timemachine_path_writable gauge")
+    lines.append(f'admin_host_audit_timemachine_path_writable{{host="{host}"}} {1 if analysis.timemachine_path_writable else 0}')
 
     lines.append("# HELP admin_host_audit_smb_healthy Whether SMB service is healthy according to audit.")
     lines.append("# TYPE admin_host_audit_smb_healthy gauge")
@@ -94,11 +95,6 @@ def render_admin_audit_metrics(
         lines.append("# HELP admin_host_audit_root_inode_used_percent Root inode used percent.")
         lines.append("# TYPE admin_host_audit_root_inode_used_percent gauge")
         lines.append(f'admin_host_audit_root_inode_used_percent{{host="{host}"}} {analysis.root_inode_used_percent}')
-
-    if analysis.backup_configs_age_seconds is not None:
-        lines.append("# HELP admin_host_backup_configs_age_seconds Age of the newest file in /backup/configs in seconds.")
-        lines.append("# TYPE admin_host_backup_configs_age_seconds gauge")
-        lines.append(f'admin_host_backup_configs_age_seconds{{host="{host}"}} {analysis.backup_configs_age_seconds}')
 
     if analysis.timemachine_age_seconds is not None:
         lines.append("# HELP admin_host_timemachine_age_seconds Age of the newest Time Machine sparsebundle artifact in seconds.")
