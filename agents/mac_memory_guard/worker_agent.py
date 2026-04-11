@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import argparse
 
-from mac_memory_guard.app import run_worker_cycle
+from agents.mac_memory_guard.cycles import run_worker_cycle
 from mac_memory_guard.logging_utils import log_line
 
 

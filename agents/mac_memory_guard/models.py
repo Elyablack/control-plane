@@ -29,3 +29,4 @@ class Metrics:
 class Evaluation:
     status: str
     reasons: List[str]
+    suggested_action: str

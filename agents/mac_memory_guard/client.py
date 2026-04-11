@@ -4,7 +4,7 @@ import json
 import subprocess
 from typing import Any
 
-from .evaluate import evaluate, normalize_app_name, suggested_action
+from .evaluate import normalize_app_name
 from .logging_utils import log_line
 from .models import Evaluation, Metrics
 
@@ -36,7 +36,6 @@ def _summary(metrics: Metrics, evaluation: Evaluation) -> str:
 
 def _description(metrics: Metrics, evaluation: Evaluation) -> str:
     top_app, top_rss_mb = _top_process_fields(metrics)
-    action = suggested_action(metrics, evaluation)
 
     parts = [
         f"status={evaluation.status}",
@@ -47,7 +46,7 @@ def _description(metrics: Metrics, evaluation: Evaluation) -> str:
         f"disk_used_percent={metrics.disk_used_percent}" if metrics.disk_used_percent is not None else "disk_used_percent=n/a",
         f"top_app={top_app}",
         f"top_rss_mb={top_rss_mb}",
-        f"suggested_action={action}",
+        f"suggested_action={evaluation.suggested_action}",
         f"time={metrics.timestamp_utc}",
     ]
     return "\n".join(parts)
@@ -55,7 +54,6 @@ def _description(metrics: Metrics, evaluation: Evaluation) -> str:
 
 def _alert_annotations(metrics: Metrics, evaluation: Evaluation) -> dict[str, str]:
     top_app, top_rss_mb = _top_process_fields(metrics)
-    action = suggested_action(metrics, evaluation)
 
     return {
         "summary": _summary(metrics, evaluation),
@@ -68,7 +66,7 @@ def _alert_annotations(metrics: Metrics, evaluation: Evaluation) -> dict[str, st
         ),
         "uptime_days": f"{metrics.uptime_days:.1f}" if metrics.uptime_days is not None else "n/a",
         "disk_used_percent": f"{metrics.disk_used_percent}" if metrics.disk_used_percent is not None else "n/a",
-        "suggested_action": action,
+        "suggested_action": evaluation.suggested_action,
         "reason_text": ", ".join(evaluation.reasons) if evaluation.reasons else "none",
         "timestamp_utc": metrics.timestamp_utc,
     }
