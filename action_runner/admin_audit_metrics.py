@@ -1,4 +1,3 @@
-# file: action_runner/admin_audit_metrics.py
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -70,6 +69,14 @@ def render_admin_audit_metrics(
     lines.append("# TYPE admin_host_audit_timemachine_path_writable gauge")
     lines.append(f'admin_host_audit_timemachine_path_writable{{host="{host}"}} {1 if analysis.timemachine_path_writable else 0}')
 
+    lines.append("# HELP admin_host_audit_infra_backups_path_exists Whether infra-backups path exists.")
+    lines.append("# TYPE admin_host_audit_infra_backups_path_exists gauge")
+    lines.append(f'admin_host_audit_infra_backups_path_exists{{host="{host}"}} {1 if analysis.infra_backups_path_exists else 0}')
+
+    lines.append("# HELP admin_host_audit_infra_backups_path_writable Whether infra-backups path is writable.")
+    lines.append("# TYPE admin_host_audit_infra_backups_path_writable gauge")
+    lines.append(f'admin_host_audit_infra_backups_path_writable{{host="{host}"}} {1 if analysis.infra_backups_path_writable else 0}')
+
     lines.append("# HELP admin_host_audit_smb_healthy Whether SMB service is healthy according to audit.")
     lines.append("# TYPE admin_host_audit_smb_healthy gauge")
     lines.append(f'admin_host_audit_smb_healthy{{host="{host}"}} {1 if analysis.smb_healthy else 0}')
@@ -105,6 +112,28 @@ def render_admin_audit_metrics(
         lines.append("# HELP admin_host_audit_log_age_seconds Age of the newest audit log in seconds.")
         lines.append("# TYPE admin_host_audit_log_age_seconds gauge")
         lines.append(f'admin_host_audit_log_age_seconds{{host="{host}"}} {analysis.audit_log_age_seconds}')
+
+    if analysis.infra_backups_tar_age_seconds is not None:
+        lines.append("# HELP admin_host_infra_backups_tar_age_seconds Age of newest VPS backup archive in seconds.")
+        lines.append("# TYPE admin_host_infra_backups_tar_age_seconds gauge")
+        lines.append(f'admin_host_infra_backups_tar_age_seconds{{host="{host}"}} {analysis.infra_backups_tar_age_seconds}')
+
+    if analysis.infra_backups_sha_age_seconds is not None:
+        lines.append("# HELP admin_host_infra_backups_sha_age_seconds Age of newest VPS backup checksum in seconds.")
+        lines.append("# TYPE admin_host_infra_backups_sha_age_seconds gauge")
+        lines.append(f'admin_host_infra_backups_sha_age_seconds{{host="{host}"}} {analysis.infra_backups_sha_age_seconds}')
+
+    lines.append("# HELP admin_host_infra_backups_tar_count Number of VPS backup archives present.")
+    lines.append("# TYPE admin_host_infra_backups_tar_count gauge")
+    lines.append(f'admin_host_infra_backups_tar_count{{host="{host}"}} {analysis.infra_backups_tar_count}')
+
+    lines.append("# HELP admin_host_infra_backups_sha_count Number of VPS backup checksum files present.")
+    lines.append("# TYPE admin_host_infra_backups_sha_count gauge")
+    lines.append(f'admin_host_infra_backups_sha_count{{host="{host}"}} {analysis.infra_backups_sha_count}')
+
+    lines.append("# HELP admin_host_infra_backups_pairs_match Whether VPS backup archives and checksum counts match.")
+    lines.append("# TYPE admin_host_infra_backups_pairs_match gauge")
+    lines.append(f'admin_host_infra_backups_pairs_match{{host="{host}"}} {1 if analysis.infra_backups_pairs_match else 0}')
 
     lines.append("# HELP admin_host_audit_finding_present Finding presence grouped by kind and severity.")
     lines.append("# TYPE admin_host_audit_finding_present gauge")
