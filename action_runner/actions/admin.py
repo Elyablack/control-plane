@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import base64
 import json
 from typing import Any
 
 from ..admin_audit import analyze_admin_audit_text, extract_log_path_from_prefixed_output
+from ..admin_audit_metrics import render_admin_audit_metrics
 from ..tools import ssh_run
 from .types import ActionResult
 
@@ -14,6 +16,7 @@ DEFAULT_VERIFY_TIMEOUT_SECONDS = 30
 DEFAULT_VERIFY_MAX_AGE_SECONDS = 1800
 DEFAULT_ANALYZE_TIMEOUT_SECONDS = 30
 DEFAULT_ANALYZE_LOG_DIR = "/var/log/mac-audit"
+DEFAULT_ANALYZE_METRICS_PATH = "/var/lib/node_exporter/textfile_collector/admin_host_audit.prom"
 MAX_STDOUT_TAIL_LINES = 20
 SAVED_PREFIX = "Saved: "
 
@@ -69,6 +72,51 @@ def _require_positive_int(payload: dict[str, Any], key: str, default: int) -> in
             error=f"{key} must be > 0",
         )
     return value
+
+
+def _write_remote_metrics_file(
+    *,
+    host: str,
+    metrics_path: str,
+    metrics_text: str,
+    timeout_seconds: int,
+) -> ActionResult | None:
+    encoded_metrics = base64.b64encode(metrics_text.encode("utf-8")).decode("ascii")
+
+    command = f"""sudo python3 - <<'PY'
+import base64
+import os
+from pathlib import Path
+
+target = {metrics_path!r}
+data = base64.b64decode({encoded_metrics!r})
+tmp = target + ".tmp"
+
+Path(os.path.dirname(target)).mkdir(parents=True, exist_ok=True)
+
+with open(tmp, "wb") as f:
+    f.write(data)
+
+os.replace(tmp, target)
+print(target)
+PY"""
+
+    raw_result = ssh_run(
+        host=host,
+        command=command,
+        timeout_seconds=timeout_seconds,
+    )
+
+    if raw_result.status == "success":
+        return None
+
+    return ActionResult(
+        status="failed",
+        exit_code=raw_result.exit_code,
+        stdout="",
+        stderr=_tail_lines(raw_result.stderr, limit=20),
+        error=raw_result.error or "failed to write remote metrics file",
+    )
 
 
 def run_admin_host_audit(payload: dict[str, Any]) -> ActionResult:
@@ -260,6 +308,16 @@ def analyze_admin_host_audit(payload: dict[str, Any]) -> ActionResult:
             error="payload.log_dir is required",
         )
 
+    metrics_path = str(payload.get("metrics_path", DEFAULT_ANALYZE_METRICS_PATH)).strip()
+    if not metrics_path:
+        return ActionResult(
+            status="failed",
+            exit_code=1,
+            stdout="",
+            stderr="",
+            error="payload.metrics_path is required",
+        )
+
     command = (
         "set -euo pipefail; "
         f'latest="$(ls -1t {log_dir}/audit_*.log 2>/dev/null | head -n1)"; '
@@ -302,18 +360,39 @@ def analyze_admin_host_audit(payload: dict[str, Any]) -> ActionResult:
         )
 
     analysis = analyze_admin_audit_text(audit_text, log_path=log_path)
+    metrics_text = render_admin_audit_metrics(analysis, host=host)
+
+    metrics_write_result = _write_remote_metrics_file(
+        host=host,
+        metrics_path=metrics_path,
+        metrics_text=metrics_text,
+        timeout_seconds=timeout_seconds,
+    )
 
     result_payload = {
         "analysis_level": analysis.overall,
         "analysis_findings_count": len(analysis.findings),
         "analysis_summary": "; ".join(f"{f.severity}:{f.message}" for f in analysis.findings),
         "analysis_log_path": analysis.log_path or "",
+        "metrics_path": metrics_path,
+        "metrics_write_ok": metrics_write_result is None,
     }
 
-    summary = (
-        f"{analysis.render_summary(host=host)}\n"
-        f"RESULT_JSON:{json.dumps(result_payload, ensure_ascii=False, sort_keys=True)}"
-    )
+    summary_parts = [analysis.render_summary(host=host)]
+    summary_parts.append(f"metrics_path={metrics_path}")
+    summary_parts.append(f"metrics_write={'ok' if metrics_write_result is None else 'failed'}")
+
+    summary = " ".join(summary_parts)
+    summary = f"{summary}\nRESULT_JSON:{json.dumps(result_payload, ensure_ascii=False, sort_keys=True)}"
+
+    if metrics_write_result is not None:
+        return ActionResult(
+            status="failed",
+            exit_code=metrics_write_result.exit_code,
+            stdout=summary,
+            stderr=metrics_write_result.stderr,
+            error=metrics_write_result.error,
+        )
 
     return ActionResult(
         status="success",

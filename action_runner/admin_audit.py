@@ -7,6 +7,7 @@ from dataclasses import dataclass
 @dataclass(frozen=True, slots=True)
 class AuditFinding:
     severity: str
+    kind: str
     message: str
 
 
@@ -15,12 +16,32 @@ class AuditAnalysis:
     overall: str
     findings: list[AuditFinding]
     log_path: str | None
+    upgradable_packages: int
+    wifi_watchdog_events: int
+    reboot_required: bool
+    reboot_detected_recently: bool
+    boot_time_unixtime: int | None
+    uptime_seconds: int | None
+    backup_path_exists: bool
+    backup_path_writable: bool
+    smb_healthy: bool
+    ssh_healthy: bool
+    tailscale_healthy: bool
+    fail2ban_healthy: bool
+    root_disk_used_percent: int | None
+    root_inode_used_percent: int | None
+    backup_configs_age_seconds: int | None
+    timemachine_age_seconds: int | None
+    audit_log_age_seconds: int | None
 
     @property
     def exit_code(self) -> int:
         if self.overall == "critical":
             return 2
         return 0
+
+    def findings_count_by_severity(self, severity: str) -> int:
+        return sum(1 for finding in self.findings if finding.severity == severity)
 
     def render_summary(self, *, host: str) -> str:
         parts = [
@@ -58,62 +79,86 @@ def extract_log_path_from_prefixed_output(text: str) -> tuple[str | None, str]:
 def analyze_admin_audit_text(text: str, *, log_path: str | None = None) -> AuditAnalysis:
     findings: list[AuditFinding] = []
 
-    def add(severity: str, message: str) -> None:
-        findings.append(AuditFinding(severity=severity, message=message))
+    def add(severity: str, kind: str, message: str) -> None:
+        findings.append(AuditFinding(severity=severity, kind=kind, message=message))
 
-    if "ip_ping: FAIL" in text:
-        add("critical", "external ping failed")
-
-    if "dns_resolve: FAIL" in text:
-        add("critical", "dns resolution failed")
-
-    if "ssh :22 not listening" in text:
-        add("critical", "ssh not listening on port 22")
-
+    network_section = _extract_section(text, "NETWORK CHECK", "MEMORY + SWAP")
+    network_services_section = _extract_section(text, "NETWORK + TAILSCALE", "SSH LISTEN")
+    ssh_section = _extract_section(text, "SSH LISTEN", "UFW SUMMARY")
+    fail2ban_section = _extract_section(text, "FAIL2BAN (status only)", "DISK ROOT")
     smb_section = _extract_section(text, "SMB SERVICES", "BACKUP PATH")
-    if _contains_any(smb_section, ["\nenabled\ninactive", "\ndisabled\ninactive", "smb ports not listening"]):
-        add("critical", "smb service unhealthy")
+    backup_path_section = _extract_section(text, "BACKUP PATH", "BACKUP FRESHNESS")
+    sysstat_section = _extract_section(text, "SYSSTAT (summary)", "CRON RSYNC (last 5 entries)")
 
-    if "backup_path_exists: NO" in text:
-        add("critical", "backup path missing")
+    ssh_healthy = "ssh :22 not listening" not in ssh_section
+    tailscale_healthy = _section_has_enabled_active_pair(network_services_section)
+    fail2ban_healthy = "fail2ban inactive" not in fail2ban_section
+    smb_healthy = _section_has_enabled_active_pair(smb_section) and "smb ports not listening" not in smb_section
+    backup_path_exists = "backup_path_exists: YES" in backup_path_section
+    backup_path_writable = "backup_path_writable: YES" in backup_path_section
 
-    if "backup_path_writable: NO" in text:
-        add("critical", "backup path not writable")
+    if "ip_ping: FAIL" in network_section:
+        add("critical", "network_ping_failed", "external ping failed")
 
-    network_services = _extract_section(text, "NETWORK + TAILSCALE", "SSH LISTEN")
-    if _contains_any(network_services, ["\nenabled\ninactive", "\ndisabled\ninactive"]):
-        add("critical", "tailscale or network service inactive")
+    if "dns_resolve: FAIL" in network_section:
+        add("critical", "dns_resolution_failed", "dns resolution failed")
+
+    if not ssh_healthy:
+        add("critical", "ssh_unhealthy", "ssh not listening on port 22")
+
+    if not tailscale_healthy:
+        add("critical", "tailscale_unhealthy", "tailscale or network service inactive")
+
+    if not smb_healthy:
+        add("critical", "smb_unhealthy", "smb service unhealthy")
+
+    if not backup_path_exists:
+        add("critical", "backup_path_missing", "backup path missing")
+
+    if backup_path_exists and not backup_path_writable:
+        add("critical", "backup_path_not_writable", "backup path not writable")
 
     root_disk_percent = _extract_root_disk_percent(text)
     if root_disk_percent is not None:
         if root_disk_percent > 90:
-            add("critical", f"root filesystem usage high ({root_disk_percent}%)")
+            add("critical", "root_disk_high", f"root filesystem usage high ({root_disk_percent}%)")
         elif root_disk_percent > 80:
-            add("warning", f"root filesystem usage elevated ({root_disk_percent}%)")
+            add("warning", "root_disk_elevated", f"root filesystem usage elevated ({root_disk_percent}%)")
 
     root_inode_percent = _extract_root_inode_percent(text)
     if root_inode_percent is not None:
         if root_inode_percent > 90:
-            add("critical", f"root inode usage high ({root_inode_percent}%)")
+            add("critical", "root_inode_high", f"root inode usage high ({root_inode_percent}%)")
         elif root_inode_percent > 80:
-            add("warning", f"root inode usage elevated ({root_inode_percent}%)")
+            add("warning", "root_inode_elevated", f"root inode usage elevated ({root_inode_percent}%)")
 
-    if "reboot_required: YES" in text:
-        add("warning", "reboot required")
+    reboot_required = "reboot_required: YES" in text
+    if reboot_required:
+        add("warning", "reboot_required", "reboot required")
 
-    upgradable_packages = _extract_first_int(r"upgradable_packages:\s*(\d+)", text)
-    if upgradable_packages is not None and upgradable_packages > 0:
-        add("warning", f"{upgradable_packages} upgradable packages")
+    reboot_detected_recently = "reboot_detected_recently: YES" in text
+    boot_time_unixtime = _extract_nonnegative_int(r"boot_time_unixtime:\s*(-?\d+)", text)
+    uptime_seconds = _extract_nonnegative_int(r"uptime_seconds:\s*(-?\d+)", text)
 
-    if "fail2ban inactive" in text:
-        add("warning", "fail2ban inactive")
+    upgradable_packages = _extract_first_int(r"upgradable_packages:\s*(\d+)", text) or 0
+    if upgradable_packages > 0:
+        add("warning", "upgradable_packages", f"{upgradable_packages} upgradable packages")
+
+    if not fail2ban_healthy:
+        add("warning", "fail2ban_unhealthy", "fail2ban inactive")
 
     if "crontab entry NOT found" in text:
-        add("warning", "cron rsync entry missing")
+        add("warning", "cron_rsync_missing", "cron rsync entry missing")
 
-    sysstat_section = _extract_section(text, "SYSSTAT (summary)", "CRON RSYNC (last 5 entries)")
-    if _contains_any(sysstat_section, ['ENABLED="false"', "\ndisabled\n", "\ninactive\n"]):
-        add("warning", "sysstat not healthy")
+    if _contains_any(
+        sysstat_section,
+        [
+            'ENABLED="false"',
+            "\ndisabled\n",
+            "\ninactive\n",
+        ],
+    ):
+        add("warning", "sysstat_unhealthy", "sysstat not healthy")
 
     if _contains_any(
         text,
@@ -122,24 +167,23 @@ def analyze_admin_audit_text(text: str, *, log_path: str | None = None) -> Audit
             "Failed to start systemd-journald.service",
         ],
     ):
-        add("warning", "recent journald watchdog/start failures detected")
+        add("warning", "journald_unstable", "recent journald watchdog/start failures detected")
 
-    if _contains_any(
-        text,
-        [
-            "brcmf_psm_watchdog_notify",
-            "Invalid packet id",
-        ],
-    ):
-        add("warning", "recent kernel wifi watchdog/errors detected")
+    wifi_watchdog_events = _extract_wifi_watchdog_count(text)
+    if wifi_watchdog_events >= 1:
+        add("warning", "wifi_watchdog", f"broadcom wifi watchdog events detected ({wifi_watchdog_events} this boot)")
 
     swap_used_mb = _extract_swap_used_mb(text)
     if swap_used_mb is not None and swap_used_mb > 512:
-        add("warning", f"swap usage elevated ({swap_used_mb:.0f}MiB)")
+        add("warning", "swap_elevated", f"swap usage elevated ({swap_used_mb:.0f}MiB)")
 
     smart_section = _extract_section(text, "SMART HEALTH", "")
     if smart_section and "SMART overall-health self-assessment test result: PASSED".lower() not in smart_section.lower():
-        add("warning", "smart health check not clearly passed")
+        add("warning", "smart_unclear", "smart health check not clearly passed")
+
+    backup_configs_age_seconds = _extract_nonnegative_int(r"backup_configs_age_seconds:\s*(-?\d+)", text)
+    timemachine_age_seconds = _extract_nonnegative_int(r"timemachine_age_seconds:\s*(-?\d+)", text)
+    audit_log_age_seconds = _extract_nonnegative_int(r"audit_log_age_seconds:\s*(-?\d+)", text)
 
     overall = "ok"
     severities = {finding.severity for finding in findings}
@@ -152,6 +196,23 @@ def analyze_admin_audit_text(text: str, *, log_path: str | None = None) -> Audit
         overall=overall,
         findings=findings,
         log_path=log_path,
+        upgradable_packages=upgradable_packages,
+        wifi_watchdog_events=wifi_watchdog_events,
+        reboot_required=reboot_required,
+        reboot_detected_recently=reboot_detected_recently,
+        boot_time_unixtime=boot_time_unixtime,
+        uptime_seconds=uptime_seconds,
+        backup_path_exists=backup_path_exists,
+        backup_path_writable=backup_path_writable,
+        smb_healthy=smb_healthy,
+        ssh_healthy=ssh_healthy,
+        tailscale_healthy=tailscale_healthy,
+        fail2ban_healthy=fail2ban_healthy,
+        root_disk_used_percent=root_disk_percent,
+        root_inode_used_percent=root_inode_percent,
+        backup_configs_age_seconds=backup_configs_age_seconds,
+        timemachine_age_seconds=timemachine_age_seconds,
+        audit_log_age_seconds=audit_log_age_seconds,
     )
 
 
@@ -177,6 +238,13 @@ def _extract_first_int(pattern: str, text: str) -> int | None:
         return None
 
 
+def _extract_nonnegative_int(pattern: str, text: str) -> int | None:
+    value = _extract_first_int(pattern, text)
+    if value is None or value < 0:
+        return None
+    return value
+
+
 def _extract_root_disk_percent(text: str) -> int | None:
     disk_section = _extract_section(text, "DISK ROOT", "INODES")
     match = re.search(
@@ -198,7 +266,7 @@ def _extract_root_inode_percent(text: str) -> int | None:
 
 
 def _extract_swap_used_mb(text: str) -> float | None:
-    memory_section = _extract_section(text, "MEMORY + SWAP", "NETWORK + TAILSCALE")
+    memory_section = _extract_section(text, "MEMORY + SWAP", "BOOT STATE")
     match = re.search(
         r"^Swap:\s+\S+\s+(\S+)\s+\S+",
         memory_section,
@@ -231,6 +299,21 @@ def _extract_swap_used_mb(text: str) -> float | None:
     return value * factor
 
 
+def _extract_wifi_watchdog_count(text: str) -> int:
+    wifi_section = _extract_section(text, "WIFI WATCHDOG", "FAIL2BAN (status only)")
+    journal_count = _extract_first_int(r"wifi_watchdog_events_journal_boot:\s*(\d+)", wifi_section) or 0
+    dmesg_count = _extract_first_int(r"wifi_watchdog_events_dmesg_boot:\s*(\d+)", wifi_section) or 0
+    return max(journal_count, dmesg_count)
+
+
 def _contains_any(text: str, patterns: list[str]) -> bool:
     lowered = text.lower()
     return any(pattern.lower() in lowered for pattern in patterns)
+
+
+def _section_has_enabled_active_pair(section: str) -> bool:
+    lines = [line.strip().lower() for line in section.splitlines() if line.strip()]
+    for idx in range(len(lines) - 1):
+        if lines[idx] == "enabled" and lines[idx + 1] == "active":
+            return True
+    return False
