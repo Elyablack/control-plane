@@ -4,7 +4,7 @@ import json
 import subprocess
 from typing import Any
 
-from .evaluate import normalize_app_name
+from .evaluate import evaluate, normalize_app_name, suggested_action
 from .logging_utils import log_line
 from .models import Evaluation, Metrics
 
@@ -15,23 +15,63 @@ ACTION_RUNNER_MAC_COMPLETE_URL = f"{ACTION_RUNNER_BASE_URL}/tasks/mac/complete"
 MAC_HOST_LABEL = "mba"
 
 
-def _description(metrics: Metrics, evaluation: Evaluation) -> str:
+def _top_process_fields(metrics: Metrics) -> tuple[str, str]:
     top = metrics.top_processes[0] if metrics.top_processes else None
-    top_name = normalize_app_name(top.command) if top else "none"
-    top_rss = f"{top.rss_mb:.0f}MB" if top else "n/a"
+    if top is None:
+        return "none", "n/a"
+    return normalize_app_name(top.command), f"{top.rss_mb:.0f}"
+
+
+def _summary(metrics: Metrics, evaluation: Evaluation) -> str:
+    top_app, top_rss_mb = _top_process_fields(metrics)
+    swap_used_mb = f"{metrics.swap_used_mb:.0f}" if metrics.swap_used_mb is not None else "n/a"
+    memory_free_percent = f"{metrics.memory_free_percent:.1f}" if metrics.memory_free_percent is not None else "n/a"
+
+    return (
+        f"{MAC_HOST_LABEL} memory pressure: "
+        f"top={top_app} rss={top_rss_mb}MB "
+        f"swap={swap_used_mb}MB free={memory_free_percent}%"
+    )
+
+
+def _description(metrics: Metrics, evaluation: Evaluation) -> str:
+    top_app, top_rss_mb = _top_process_fields(metrics)
+    action = suggested_action(metrics, evaluation)
 
     parts = [
         f"status={evaluation.status}",
-        f"reasons={', '.join(evaluation.reasons)}",
-        f"swap_mb={metrics.swap_used_mb:.0f}" if metrics.swap_used_mb is not None else "swap_mb=n/a",
-        f"memory_free={metrics.memory_free_percent:.1f}%" if metrics.memory_free_percent is not None else "memory_free=n/a",
+        f"reasons={', '.join(evaluation.reasons)}" if evaluation.reasons else "reasons=none",
+        f"swap_used_mb={metrics.swap_used_mb:.0f}" if metrics.swap_used_mb is not None else "swap_used_mb=n/a",
+        f"memory_free_percent={metrics.memory_free_percent:.1f}" if metrics.memory_free_percent is not None else "memory_free_percent=n/a",
         f"uptime_days={metrics.uptime_days:.1f}" if metrics.uptime_days is not None else "uptime_days=n/a",
-        f"disk_used={metrics.disk_used_percent}%" if metrics.disk_used_percent is not None else "disk_used=n/a",
-        f"top_app={top_name}",
-        f"top_rss={top_rss}",
+        f"disk_used_percent={metrics.disk_used_percent}" if metrics.disk_used_percent is not None else "disk_used_percent=n/a",
+        f"top_app={top_app}",
+        f"top_rss_mb={top_rss_mb}",
+        f"suggested_action={action}",
         f"time={metrics.timestamp_utc}",
     ]
     return "\n".join(parts)
+
+
+def _alert_annotations(metrics: Metrics, evaluation: Evaluation) -> dict[str, str]:
+    top_app, top_rss_mb = _top_process_fields(metrics)
+    action = suggested_action(metrics, evaluation)
+
+    return {
+        "summary": _summary(metrics, evaluation),
+        "description": _description(metrics, evaluation),
+        "top_app": top_app,
+        "top_rss_mb": top_rss_mb,
+        "swap_used_mb": f"{metrics.swap_used_mb:.0f}" if metrics.swap_used_mb is not None else "n/a",
+        "memory_free_percent": (
+            f"{metrics.memory_free_percent:.1f}" if metrics.memory_free_percent is not None else "n/a"
+        ),
+        "uptime_days": f"{metrics.uptime_days:.1f}" if metrics.uptime_days is not None else "n/a",
+        "disk_used_percent": f"{metrics.disk_used_percent}" if metrics.disk_used_percent is not None else "n/a",
+        "suggested_action": action,
+        "reason_text": ", ".join(evaluation.reasons) if evaluation.reasons else "none",
+        "timestamp_utc": metrics.timestamp_utc,
+    }
 
 
 def send_event_to_runner(metrics: Metrics, evaluation: Evaluation) -> bool:
@@ -45,10 +85,7 @@ def send_event_to_runner(metrics: Metrics, evaluation: Evaluation) -> bool:
                     "instance": MAC_HOST_LABEL,
                     "job": "mac-agent",
                 },
-                "annotations": {
-                    "summary": f"Mac memory pressure detected on {MAC_HOST_LABEL}",
-                    "description": _description(metrics, evaluation),
-                },
+                "annotations": _alert_annotations(metrics, evaluation),
             }
         ]
     }
