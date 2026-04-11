@@ -20,6 +20,7 @@ The current design keeps responsibilities separate:
   - exposes state
   - runs the audit script
   - stores Time Machine data
+  - stores offsite VPS backup artifacts
   - exports node metrics
 
 - `control-plane`:
@@ -37,7 +38,8 @@ This keeps business logic out of the scheduler and out of the raw audit script.
 ## Current model
 
 ### Scheduler
-Scheduler is intentionally dumb.
+
+Scheduler is intentionally simple.
 
 It only decides that it is time to run a workflow, for example:
 
@@ -46,6 +48,7 @@ It only decides that it is time to run a workflow, for example:
 Scheduler does **not** know audit business logic.
 
 ### Workflow
+
 The audit workflow lives in `control-plane` rules/chains.
 
 Current chain shape:
@@ -56,13 +59,22 @@ Current chain shape:
 4. `notify_tg` only when analysis level is `warning` or `critical`
 
 ### Audit script on `admin`
-`/usr/local/bin/mac_audit.sh` is now an observation script.
 
-It does **not** decide notifications.
-It does **not** decide scheduling.
+`/usr/local/bin/admin_host_audit.sh` is now an observation script.
+
+It does **not** decide notifications.  
+It does **not** decide scheduling.  
 It does **not** perform remediation.
 
 It only reports host state.
+
+It supports three modes:
+
+- `full`
+- `host`
+- `backup`
+
+The control-plane workflow uses the full audit mode.
 
 ---
 
@@ -71,24 +83,36 @@ It only reports host state.
 The admin-host audit flow is executed through `control-plane` actions.
 
 ### `run_admin_host_audit`
+
 Runs the remote audit script on `admin`.
 
+Default command:
+
+```
+sudo /usr/local/bin/admin_host_audit.sh full
+```
+
 Expected result:
-- audit log created in `/var/log/mac-audit`
+
+- audit log created in `/var/log/admin-host-audit`
 - action returns success/failure and log path summary
 
 ### `verify_admin_host_audit`
+
 Checks that the newest audit log exists, is non-empty, and is fresh enough.
 
 Expected result:
+
 - `audit_verify=ok`
 - log path
 - log age
 
 ### `analyze_admin_host_audit`
+
 Fetches the latest audit log, parses it, classifies findings, and writes derived metrics to the node exporter textfile collector.
 
 Expected result:
+
 - `analysis_level`
 - `analysis_findings_count`
 - `analysis_summary`
@@ -122,6 +146,8 @@ The `admin` audit currently reports:
 - `SMB SERVICES`
 - `TIME MACHINE PATH`
 - `TIME MACHINE FRESHNESS`
+- `INFRA BACKUPS PATH`
+- `INFRA BACKUPS FRESHNESS`
 - `AUDIT LOG FRESHNESS`
 - `SMART HEALTH`
 
@@ -140,6 +166,10 @@ The analyzer currently derives structured findings such as:
 - SMB unhealthy
 - Time Machine path missing
 - Time Machine path not writable
+- infra-backups path missing
+- infra-backups path not writable
+- infra-backups archive/checksum mismatch
+- stale infra-backups archive
 - root filesystem usage elevated/high
 - root inode usage elevated/high
 - reboot required
@@ -192,27 +222,34 @@ These metrics are then scraped through node exporter and visualized in Grafana.
 
 Core audit metrics include:
 
-- admin_host_audit_last_run_unixtime
-- admin_host_audit_status{level=...}
-- admin_host_audit_findings_count
-- admin_host_audit_findings_count_by_severity{severity=...}
-- admin_host_audit_upgradable_packages
-- admin_host_audit_wifi_watchdog_events
-- admin_host_audit_reboot_required
-- admin_host_reboot_detected_recently
-- admin_host_boot_time_unixtime
-- admin_host_uptime_seconds
-- admin_host_audit_timemachine_path_exists
-- admin_host_audit_timemachine_path_writable
-- admin_host_audit_smb_healthy
-- admin_host_audit_ssh_healthy
-- admin_host_audit_tailscale_healthy
-- admin_host_audit_fail2ban_healthy
-- admin_host_audit_root_disk_used_percent
-- admin_host_audit_root_inode_used_percent
-- admin_host_timemachine_age_seconds
-- admin_host_audit_log_age_seconds
-- admin_host_audit_finding_present{kind=...,severity=...}
+- `admin_host_audit_last_run_unixtime`
+- `admin_host_audit_status{level=...}`
+- `admin_host_audit_findings_count`
+- `admin_host_audit_findings_count_by_severity{severity=...}`
+- `admin_host_audit_upgradable_packages`
+- `admin_host_audit_wifi_watchdog_events`
+- `admin_host_audit_reboot_required`
+- `admin_host_reboot_detected_recently`
+- `admin_host_boot_time_unixtime`
+- `admin_host_uptime_seconds`
+- `admin_host_audit_timemachine_path_exists`
+- `admin_host_audit_timemachine_path_writable`
+- `admin_host_audit_infra_backups_path_exists`
+- `admin_host_audit_infra_backups_path_writable`
+- `admin_host_audit_smb_healthy`
+- `admin_host_audit_ssh_healthy`
+- `admin_host_audit_tailscale_healthy`
+- `admin_host_audit_fail2ban_healthy`
+- `admin_host_audit_root_disk_used_percent`
+- `admin_host_audit_root_inode_used_percent`
+- `admin_host_timemachine_age_seconds`
+- `admin_host_audit_log_age_seconds`
+- `admin_host_infra_backups_tar_age_seconds`
+- `admin_host_infra_backups_sha_age_seconds`
+- `admin_host_infra_backups_tar_count`
+- `admin_host_infra_backups_sha_count`
+- `admin_host_infra_backups_pairs_match`
+- `admin_host_audit_finding_present{kind=...,severity=...}`
 
 ---
 
@@ -220,7 +257,7 @@ Core audit metrics include:
 
 ### Removed from active model
 
-**Local root cron audit**
+#### Local root cron audit
 
 Old root cron job:
 
@@ -228,9 +265,9 @@ Old root cron job:
 0 4 * * 0 /usr/local/bin/mac_audit.sh >/dev/null 2>&1
 ```
 
-This is no longer needed because audit scheduling is now handled by control-plane.
+This is no longer needed because audit scheduling is now handled by `control-plane`.
 
-**Legacy /backup/configs flow**
+#### Legacy `/backup/configs` flow
 
 Old root cron job:
 
@@ -238,7 +275,7 @@ Old root cron job:
 0 3 * * 0 rsync -a --delete /etc /backup/configs/
 ```
 
-This created /backup/configs/etc and represented an old config-copy flow.
+This created `/backup/configs/etc` and represented an old config-copy flow.
 
 This path is no longer treated as a current source of truth for admin-host backup health.
 
@@ -251,13 +288,13 @@ It was removed from:
 
 ### Deprecated Mac rsync flow
 
-The old Mac-side launchd + rsync workflow was moved out of the active design.
+The old Mac-side `launchd + rsync` workflow was moved out of the active design.
 
 Reasons:
 
-- macOS privacy/TCC issues on Documents and Desktop
-- broken/nonexistent path usage
-- unreliable SSH reachability to admin
+- macOS privacy/TCC issues on `Documents` and `Desktop`
+- broken or nonexistent path usage
+- unreliable SSH reachability to `admin`
 - duplicated intent with Time Machine
 
 Current primary Mac backup model is Time Machine over SMB.
@@ -271,18 +308,45 @@ Current primary Mac backup model is Time Machine over SMB.
 Primary Mac backup is:
 
 - Time Machine over SMB
-- stored on admin
+- stored on `admin`
 - monitored via:
   - SMB health
   - Time Machine path existence/writability
   - Time Machine freshness
 
+### VPS offsite backup receiving side
+
+`admin` also acts as the offsite receiving side for daily VPS backup artifacts.
+
+Current flow:
+
+1. VPS systemd timer runs `control-plane-backup.service`
+2. `/srv/control-plane/backup/run_backup.sh` creates a backup archive on VPS
+3. a sha256 checksum is generated
+4. `/srv/control-plane/backup/offsite_copy.sh` copies both files to:
+
+```
+/home/admin1/infra-backups
+```
+
+5. old files are pruned on both VPS and `admin`, keeping 7
+
+The admin-host audit monitors this receiving side via:
+
+- infra-backups path existence
+- infra-backups path writability
+- latest archive age
+- latest checksum age
+- archive count
+- checksum count
+- pair consistency
+
 ### What is not considered primary anymore
 
 These are not part of the current primary backup path:
 
-- old launchd rsync from Mac
-- old /backup/configs config-copy snapshot
+- old `launchd` rsync from Mac
+- old `/backup/configs` config-copy snapshot
 
 ---
 
@@ -293,7 +357,7 @@ A reboot/backlight-remediation path was considered, but intentionally not automa
 Reasoning:
 
 - the actual action is trivial
-- manual reboots on admin are acceptable
+- manual reboots on `admin` are acceptable
 - the cost of adding intent markers, reboot classification, and remediation chains was not justified
 - current visibility is already sufficient through:
   - audit metrics
@@ -302,7 +366,7 @@ Reasoning:
 
 Current policy:
 
-- reboot of admin is handled manually when needed
+- reboot of `admin` is handled manually when needed
 - audit reports reboot-related state
 - no automatic reboot remediation is applied
 
@@ -310,20 +374,22 @@ Current policy:
 
 ## Operational commands
 
-**Run audit directly on admin**
+### Run audit directly on `admin`
 
 ```
-sudo /usr/local/bin/mac_audit.sh
+sudo /usr/local/bin/admin_host_audit.sh full
+sudo /usr/local/bin/admin_host_audit.sh host
+sudo /usr/local/bin/admin_host_audit.sh backup
 ```
 
-**Inspect latest audit log on admin**
+### Inspect latest audit log on `admin`
 
 ```
-sudo ls -1t /var/log/mac-audit/audit_*.log | head -n1
-sudo tail -n 120 "$(ls -1t /var/log/mac-audit/audit_*.log | head -n1)"
+sudo ls -1t /var/log/admin-host-audit/audit_*.log | head -n1
+sudo tail -n 120 "$(ls -1t /var/log/admin-host-audit/audit_*.log | head -n1)"
 ```
 
-**Trigger full analysis from control-plane**
+### Trigger full analysis from `control-plane`
 
 ```
 curl -s http://127.0.0.1:8088/actions/run \
@@ -331,12 +397,12 @@ curl -s http://127.0.0.1:8088/actions/run \
     "action":"analyze_admin_host_audit",
     "payload":{
       "host":"admin",
-      "log_dir":"/var/log/mac-audit"
+      "log_dir":"/var/log/admin-host-audit"
     }
   }' | jq
 ```
 
-**Inspect latest run / task / decision**
+### Inspect latest run / task / decision
 
 ```
 curl -s http://127.0.0.1:8088/runs | jq
@@ -344,19 +410,19 @@ curl -s http://127.0.0.1:8088/tasks | jq
 curl -s http://127.0.0.1:8088/decisions | jq
 ```
 
-**Check generated audit metrics on admin**
+### Check generated audit metrics on `admin`
 
 ```
 sudo cat /var/lib/node_exporter/textfile_collector/admin_host_audit.prom
 ```
 
-**Check metrics through node exporter**
+### Check metrics through node exporter
 
 ```
 curl -s http://127.0.0.1:9100/metrics | grep admin_host_
 ```
 
-**Check metrics remotely from control-plane**
+### Check metrics remotely from `control-plane`
 
 ```
 curl -s http://100.103.137.9:9100/metrics | grep admin_host_
@@ -366,25 +432,25 @@ curl -s http://100.103.137.9:9100/metrics | grep admin_host_
 
 ## Design rules to keep
 
-### Scheduler stays dumb
+### Scheduler stays simple
 
-Scheduler only triggers workflows.
+Scheduler only triggers workflows.  
 It should not embed audit-specific logic.
 
 ### Audit script stays observational
 
-mac_audit.sh reports state.
-It should not own notification logic.
-It should not own scheduling.
+`admin_host_audit.sh` reports state.  
+It should not own notification logic.  
+It should not own scheduling.  
 It should not silently remediate.
 
 ### Analyzer owns interpretation
 
-admin_audit.py converts raw audit text into structured findings and metrics.
+`admin_audit.py` converts raw audit text into structured findings and metrics.
 
 ### Control-plane owns orchestration
 
-Workflow chaining, conditional notify behavior, and future remediations belong in control-plane.
+Workflow chaining, conditional notify behavior, and future remediations belong in `control-plane`.
 
 ---
 
@@ -398,7 +464,8 @@ The admin-host audit is now a control-plane-managed workflow with:
 - structured analysis
 - Telegram notifications on non-OK states
 - Prometheus/Grafana integration
-- legacy /backup/configs path removed from active monitoring
+- legacy `/backup/configs` path removed from active monitoring
 - Time Machine retained as the primary Mac backup signal
+- `infra-backups` monitored as the offsite VPS backup receiving path
 
 This is the current intended architecture.
