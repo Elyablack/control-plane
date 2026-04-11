@@ -10,8 +10,16 @@ from .state import create_decision, create_task
 from .task_service import priority_for_severity
 
 
+def _extract_signal_context(signal: dict[str, Any]) -> dict[str, Any]:
+    context = signal.get("context")
+    if isinstance(context, dict):
+        return dict(context)
+    return {}
+
+
 def process_single_signal(signal: dict[str, Any], *, source: str) -> dict[str, Any]:
     decision = decide_alert_action(signal, LOADED_RULES)
+    signal_context = _extract_signal_context(signal)
 
     base = {
         "alertname": signal["alertname"],
@@ -20,11 +28,14 @@ def process_single_signal(signal: dict[str, Any], *, source: str) -> dict[str, A
         "instance": signal["instance"],
         "job": signal["job"],
         "summary": signal["summary"],
+        "description": signal.get("description", ""),
         "fingerprint": signal["fingerprint"],
         "decision": decision["decision"],
         "reason": decision["reason"],
         "rule_name": decision.get("rule_name"),
+        "context": signal_context,
     }
+    base.update(signal_context)
 
     action_name: str | None = decision.get("action")
     decision_id = create_decision(
@@ -69,9 +80,12 @@ def process_single_signal(signal: dict[str, Any], *, source: str) -> dict[str, A
             "instance": signal["instance"],
             "job": signal["job"],
             "summary": signal["summary"],
+            "description": signal.get("description", ""),
             "fingerprint": signal["fingerprint"],
             "rule_name": decision.get("rule_name") or "",
+            "context": signal_context,
         }
+        chain_context.update(signal_context)
 
         task_payload = {
             "steps": decision["steps"],

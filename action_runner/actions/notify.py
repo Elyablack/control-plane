@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 import urllib.error
 import urllib.request
 from typing import Any
@@ -15,6 +14,48 @@ def _as_str(value: Any, default: str = "") -> str:
         return default
     text = str(value).strip()
     return text if text else default
+
+
+def _normalize_fact(item: Any) -> tuple[str, str] | None:
+    if isinstance(item, dict):
+        key = _as_str(item.get("key"))
+        value = _as_str(item.get("value"))
+        if key and value:
+            return key, value
+
+    if isinstance(item, (list, tuple)) and len(item) == 2:
+        key = _as_str(item[0])
+        value = _as_str(item[1])
+        if key and value:
+            return key, value
+
+    return None
+
+
+def _render_message_text(payload: dict[str, Any]) -> tuple[str, str]:
+    title = _as_str(payload.get("title"), _as_str(payload.get("message"), "Notification from action-runner"))
+    body = _as_str(payload.get("body"), _as_str(payload.get("description")))
+    facts_raw = payload.get("facts", [])
+
+    lines: list[str] = [title]
+
+    if isinstance(facts_raw, list):
+        rendered_facts: list[str] = []
+        for item in facts_raw:
+            fact = _normalize_fact(item)
+            if fact is None:
+                continue
+            rendered_facts.append(f"{fact[0]}={fact[1]}")
+        if rendered_facts:
+            lines.append("")
+            lines.extend(rendered_facts)
+
+    if body:
+        lines.append("")
+        lines.append(body)
+
+    text = "\n".join(lines).strip()
+    return title, text
 
 
 def _build_alertmanager_like_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -58,19 +99,11 @@ def _build_alertmanager_like_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _build_message_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    message = _as_str(payload.get("message"), "Notification from action-runner")
-    description = _as_str(payload.get("description"))
+    title, text = _render_message_text(payload)
     event = _as_str(payload.get("event"), "action_runner_event")
     source = _as_str(payload.get("source"), "action-runner")
     severity = _as_str(payload.get("severity"), "info")
     status = _as_str(payload.get("status"), "firing")
-
-    lines = [message]
-    if description:
-        lines.append("")
-        lines.append(description)
-
-    text = "\n".join(lines).strip()
 
     return {
         "receiver": "action-runner",
@@ -86,7 +119,7 @@ def _build_message_payload(payload: dict[str, Any]) -> dict[str, Any]:
                     "instance": "vps",
                 },
                 "annotations": {
-                    "summary": message,
+                    "summary": title,
                     "description": text,
                 },
             }
@@ -99,7 +132,7 @@ def _build_message_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "service": source,
         },
         "commonAnnotations": {
-            "summary": message,
+            "summary": title,
         },
     }
 

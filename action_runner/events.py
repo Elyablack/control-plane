@@ -5,6 +5,19 @@ import json
 from typing import Any
 
 
+_CONTEXT_KEYS_FROM_ANNOTATIONS = (
+    "top_app",
+    "top_rss_mb",
+    "swap_used_mb",
+    "memory_free_percent",
+    "uptime_days",
+    "disk_used_percent",
+    "suggested_action",
+    "reason_text",
+    "timestamp_utc",
+)
+
+
 def _as_dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
@@ -29,6 +42,23 @@ def _build_fingerprint(labels: dict[str, Any], explicit_fingerprint: Any) -> str
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+def _extract_context(labels: dict[str, Any], annotations: dict[str, Any]) -> dict[str, Any]:
+    context: dict[str, Any] = {}
+
+    for key in _CONTEXT_KEYS_FROM_ANNOTATIONS:
+        value = annotations.get(key)
+        if value is None:
+            value = labels.get(key)
+        if value is None:
+            continue
+
+        text = str(value).strip()
+        if text:
+            context[key] = text
+
+    return context
+
+
 def normalize_alertmanager_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
     alerts = payload.get("alerts", [])
     if not isinstance(alerts, list):
@@ -42,6 +72,7 @@ def normalize_alertmanager_payload(payload: dict[str, Any]) -> list[dict[str, An
 
         labels = _as_dict(alert.get("labels"))
         annotations = _as_dict(alert.get("annotations"))
+        context = _extract_context(labels, annotations)
 
         normalized.append(
             {
@@ -55,6 +86,7 @@ def normalize_alertmanager_payload(payload: dict[str, Any]) -> list[dict[str, An
                 "fingerprint": _build_fingerprint(labels, alert.get("fingerprint")),
                 "labels": labels,
                 "annotations": annotations,
+                "context": context,
                 "raw": alert,
             }
         )
