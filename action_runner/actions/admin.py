@@ -10,12 +10,12 @@ from ..tools import ssh_run
 from .types import ActionResult
 
 DEFAULT_ADMIN_AUDIT_HOST = "admin"
-DEFAULT_ADMIN_AUDIT_COMMAND = "sudo /usr/local/bin/mac_audit.sh"
+DEFAULT_ADMIN_AUDIT_COMMAND = "sudo /usr/local/bin/admin_host_audit.sh full"
 DEFAULT_ADMIN_AUDIT_TIMEOUT_SECONDS = 120
 DEFAULT_VERIFY_TIMEOUT_SECONDS = 30
 DEFAULT_VERIFY_MAX_AGE_SECONDS = 1800
 DEFAULT_ANALYZE_TIMEOUT_SECONDS = 30
-DEFAULT_ANALYZE_LOG_DIR = "/var/log/mac-audit"
+DEFAULT_ANALYZE_LOG_DIR = "/var/log/admin-host-audit"
 DEFAULT_ANALYZE_METRICS_PATH = "/var/lib/node_exporter/textfile_collector/admin_host_audit.prom"
 MAX_STDOUT_TAIL_LINES = 20
 SAVED_PREFIX = "Saved: "
@@ -128,9 +128,19 @@ def run_admin_host_audit(payload: dict[str, Any]) -> ActionResult:
     if isinstance(timeout_seconds, ActionResult):
         return timeout_seconds
 
+    command = str(payload.get("command", DEFAULT_ADMIN_AUDIT_COMMAND)).strip()
+    if not command:
+        return ActionResult(
+            status="failed",
+            exit_code=1,
+            stdout="",
+            stderr="",
+            error="payload.command must not be empty",
+        )
+
     raw_result = ssh_run(
         host=host,
-        command=DEFAULT_ADMIN_AUDIT_COMMAND,
+        command=command,
         timeout_seconds=timeout_seconds,
     )
 

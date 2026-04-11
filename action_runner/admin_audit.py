@@ -24,6 +24,13 @@ class AuditAnalysis:
     uptime_seconds: int | None
     timemachine_path_exists: bool
     timemachine_path_writable: bool
+    infra_backups_path_exists: bool
+    infra_backups_path_writable: bool
+    infra_backups_tar_age_seconds: int | None
+    infra_backups_sha_age_seconds: int | None
+    infra_backups_tar_count: int
+    infra_backups_sha_count: int
+    infra_backups_pairs_match: bool
     smb_healthy: bool
     ssh_healthy: bool
     tailscale_healthy: bool
@@ -87,14 +94,24 @@ def analyze_admin_audit_text(text: str, *, log_path: str | None = None) -> Audit
     fail2ban_section = _extract_section(text, "FAIL2BAN (status only)", "DISK ROOT")
     smb_section = _extract_section(text, "SMB SERVICES", "TIME MACHINE PATH")
     timemachine_path_section = _extract_section(text, "TIME MACHINE PATH", "TIME MACHINE FRESHNESS")
+    infra_backups_path_section = _extract_section(text, "INFRA BACKUPS PATH", "INFRA BACKUPS FRESHNESS")
     sysstat_section = _extract_section(text, "SYSSTAT (summary)", "JOURNAL P3+ (current boot)")
 
     ssh_healthy = "ssh :22 not listening" not in ssh_section
     tailscale_healthy = _section_has_enabled_active_pair(network_services_section)
     fail2ban_healthy = "fail2ban inactive" not in fail2ban_section
     smb_healthy = _section_has_enabled_active_pair(smb_section) and "smb ports not listening" not in smb_section
+
     timemachine_path_exists = "timemachine_path_exists: YES" in timemachine_path_section
     timemachine_path_writable = "timemachine_path_writable: YES" in timemachine_path_section
+
+    infra_backups_path_exists = "infra_backups_path_exists: YES" in infra_backups_path_section
+    infra_backups_path_writable = "infra_backups_path_writable: YES" in infra_backups_path_section
+    infra_backups_tar_age_seconds = _extract_nonnegative_int(r"infra_backups_tar_age_seconds:\s*(-?\d+)", text)
+    infra_backups_sha_age_seconds = _extract_nonnegative_int(r"infra_backups_sha_age_seconds:\s*(-?\d+)", text)
+    infra_backups_tar_count = _extract_first_int(r"infra_backups_tar_count:\s*(\d+)", text) or 0
+    infra_backups_sha_count = _extract_first_int(r"infra_backups_sha_count:\s*(\d+)", text) or 0
+    infra_backups_pairs_match = "infra_backups_pairs_match: YES" in text
 
     if "ip_ping: FAIL" in network_section:
         add("critical", "network_ping_failed", "external ping failed")
@@ -116,6 +133,22 @@ def analyze_admin_audit_text(text: str, *, log_path: str | None = None) -> Audit
 
     if timemachine_path_exists and not timemachine_path_writable:
         add("critical", "timemachine_path_not_writable", "time machine path not writable")
+
+    if not infra_backups_path_exists:
+        add("warning", "infra_backups_path_missing", "infra-backups path missing")
+
+    if infra_backups_path_exists and not infra_backups_path_writable:
+        add("warning", "infra_backups_path_not_writable", "infra-backups path not writable")
+
+    if not infra_backups_pairs_match:
+        add("warning", "infra_backups_pairs_mismatch", "infra-backups tar/sha256 counts do not match")
+
+    if infra_backups_tar_age_seconds is not None and infra_backups_tar_age_seconds > 3 * 24 * 3600:
+        add(
+            "warning",
+            "infra_backups_stale",
+            f"infra-backups latest archive is stale ({infra_backups_tar_age_seconds}s)",
+        )
 
     root_disk_percent = _extract_root_disk_percent(text)
     if root_disk_percent is not None:
@@ -199,6 +232,13 @@ def analyze_admin_audit_text(text: str, *, log_path: str | None = None) -> Audit
         uptime_seconds=uptime_seconds,
         timemachine_path_exists=timemachine_path_exists,
         timemachine_path_writable=timemachine_path_writable,
+        infra_backups_path_exists=infra_backups_path_exists,
+        infra_backups_path_writable=infra_backups_path_writable,
+        infra_backups_tar_age_seconds=infra_backups_tar_age_seconds,
+        infra_backups_sha_age_seconds=infra_backups_sha_age_seconds,
+        infra_backups_tar_count=infra_backups_tar_count,
+        infra_backups_sha_count=infra_backups_sha_count,
+        infra_backups_pairs_match=infra_backups_pairs_match,
         smb_healthy=smb_healthy,
         ssh_healthy=ssh_healthy,
         tailscale_healthy=tailscale_healthy,
