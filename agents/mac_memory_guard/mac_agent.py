@@ -3,14 +3,14 @@ from __future__ import annotations
 
 import argparse
 
-from mac_memory_guard.app import run_report_cycle, run_worker_cycle
+from agents.mac_memory_guard.cycles import run_report_cycle, run_worker_cycle
 from mac_memory_guard.collectors import collect_metrics
 from mac_memory_guard.evaluate import evaluate, normalize_app_name
 from mac_memory_guard.logging_utils import log_line
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="compat wrapper for mac memory agent")
+    parser = argparse.ArgumentParser(description="mac memory agent CLI")
     parser.add_argument("--mode", choices=["combined", "report", "worker"], default="combined")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--no-publish", action="store_true")
