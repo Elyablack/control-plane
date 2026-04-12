@@ -34,6 +34,7 @@ ALLOWED_ACTIONS = {
     "run_admin_host_audit",
     "verify_admin_host_audit",
     "analyze_admin_host_audit",
+    "generate_weekly_ops_review",
 }
 
 BACKUP_SCRIPT = _env_str("BACKUP_SCRIPT", "/srv/control-plane/backup/run_backup.sh")
@@ -53,3 +54,7 @@ TASK_PRIORITY_BY_SEVERITY = {
     "info": 50,
     "test": 10,
 }
+
+OPENAI_API_KEY = _env_str("OPENAI_API_KEY")
+OPENAI_BASE_URL = _env_str("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+OPENAI_WEEKLY_REVIEW_MODEL = _env_str("OPENAI_WEEKLY_REVIEW_MODEL", "gpt-5.4-nano")

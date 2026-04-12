@@ -104,7 +104,7 @@ rules:
             instance: "{{ instance }}"
             severity: "{{ severity }}"
     cooldown_seconds: 300
-  
+
   - name: host_reboot_detected_ignore
     enabled: true
     match:
@@ -145,17 +145,42 @@ rules:
             analysis_level_in: ["warning", "critical"]
           payload:
             format: message
-            title: "[ADMIN][{{ analysis_level|upper }}] {{ instance }} audit findings"
-            facts:
-              - key: findings
-                value: "{{ analysis_findings_count }}"
-              - key: level
-                value: "{{ analysis_level }}"
-              - key: log
-                value: "{{ analysis_log_path }}"
-            body: "{{ analysis_summary }}"
+            message: "[ADMIN][{{ analysis_level|upper }}] unattended audit findings on {{ instance }}"
+            description: |
+              findings: {{ analysis_findings_count }}
+              {{ analysis_summary }}
+
+              log: {{ analysis_log_path }}
             source: "action-runner"
             event: "admin_host_audit_findings"
             severity: "{{ analysis_level }}"
+            status: "firing"
+    cooldown_seconds: 3600
+
+  - name: weekly_ops_review_generate
+    enabled: true
+    match:
+      alertname: WeeklyOpsReview
+      status: firing
+      severity: info
+    action:
+      type: chain
+      steps:
+        - name: generate_weekly_ops_review
+          payload:
+            days: 7
+            retention_count: 10
+
+        - name: notify_tg
+          payload:
+            format: message
+            title: "[WEEKLY] ops review generated"
+            facts:
+              - key: path
+                value: "{{ markdown_path }}"
+            body: "Weekly review snapshot saved."
+            source: "action-runner"
+            event: "weekly_ops_review_generated"
+            severity: "info"
             status: "firing"
     cooldown_seconds: 3600

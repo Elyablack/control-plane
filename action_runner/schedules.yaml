@@ -3,7 +3,7 @@ schedules:
     enabled: true
     weekday: 6
     hour: 4
-    minute: o
+    minute: 0
     signal:
       alertname: AdminHostAuditWeekly
       status: firing
@@ -13,3 +13,16 @@ schedules:
       summary: scheduled weekly admin host audit
       description: internal scheduled trigger for admin host audit workflow
 
+  - name: weekly_ops_review
+    enabled: true
+    weekday: 6
+    hour: 4
+    minute: 15
+    signal:
+      alertname: WeeklyOpsReview
+      status: firing
+      severity: info
+      instance: vps
+      job: scheduler
+      summary: scheduled weekly ops review
+      description: internal scheduled trigger for weekly ops review generation
