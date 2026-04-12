@@ -29,7 +29,7 @@ schedules:
 
   - name: vps_host_audit_daily
     enabled: true
-    weekday: 0
+    daily: true
     hour: 4
     minute: 30
     signal:
