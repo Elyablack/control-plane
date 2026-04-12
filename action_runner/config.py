@@ -35,6 +35,7 @@ ALLOWED_ACTIONS = {
     "verify_admin_host_audit",
     "analyze_admin_host_audit",
     "generate_weekly_ops_review",
+    "copy_file_to_mac",
 }
 
 BACKUP_SCRIPT = _env_str("BACKUP_SCRIPT", "/srv/control-plane/backup/run_backup.sh")
@@ -47,6 +48,14 @@ RESEND_TO = _env_str("RESEND_TO", "delivered@resend.dev")
 RESEND_API_URL = _env_str("RESEND_API_URL", "https://api.resend.com/emails")
 RESEND_TIMEOUT_SECONDS = _env_int("RESEND_TIMEOUT_SECONDS", 15)
 
+OPENAI_API_KEY = _env_str("OPENAI_API_KEY")
+OPENAI_BASE_URL = _env_str("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+OPENAI_WEEKLY_REVIEW_MODEL = _env_str("OPENAI_WEEKLY_REVIEW_MODEL", "gpt-5.4-nano")
+
+MAC_REVIEW_SSH_TARGET = _env_str("MAC_REVIEW_SSH_TARGET", "mac")
+MAC_REVIEW_DOCS_DIR = _env_str("MAC_REVIEW_DOCS_DIR", "~/Documents/control-plane-reviews")
+MAC_REVIEW_COPY_TIMEOUT_SECONDS = _env_int("MAC_REVIEW_COPY_TIMEOUT_SECONDS", 30)
+
 DEFAULT_TASK_PRIORITY = 50
 TASK_PRIORITY_BY_SEVERITY = {
     "critical": 100,
@@ -54,7 +63,3 @@ TASK_PRIORITY_BY_SEVERITY = {
     "info": 50,
     "test": 10,
 }
-
-OPENAI_API_KEY = _env_str("OPENAI_API_KEY")
-OPENAI_BASE_URL = _env_str("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
-OPENAI_WEEKLY_REVIEW_MODEL = _env_str("OPENAI_WEEKLY_REVIEW_MODEL", "gpt-5.4-nano")
