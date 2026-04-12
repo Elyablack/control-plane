@@ -36,6 +36,9 @@ ALLOWED_ACTIONS = {
     "analyze_admin_host_audit",
     "generate_weekly_ops_review",
     "copy_file_to_mac",
+    "run_vps_host_audit",
+    "verify_vps_host_audit",
+    "analyze_vps_host_audit",
 }
 
 BACKUP_SCRIPT = _env_str("BACKUP_SCRIPT", "/srv/control-plane/backup/run_backup.sh")
@@ -55,6 +58,13 @@ OPENAI_WEEKLY_REVIEW_MODEL = _env_str("OPENAI_WEEKLY_REVIEW_MODEL", "gpt-5.4-nan
 MAC_REVIEW_SSH_TARGET = _env_str("MAC_REVIEW_SSH_TARGET", "mac")
 MAC_REVIEW_DOCS_DIR = _env_str("MAC_REVIEW_DOCS_DIR", "~/Documents/control-plane-reviews")
 MAC_REVIEW_COPY_TIMEOUT_SECONDS = _env_int("MAC_REVIEW_COPY_TIMEOUT_SECONDS", 30)
+
+VPS_HOST_AUDIT_SCRIPT = _env_str("VPS_HOST_AUDIT_SCRIPT", "/usr/local/bin/vps_host_audit.sh")
+VPS_HOST_AUDIT_LOG_DIR = _env_str("VPS_HOST_AUDIT_LOG_DIR", "/var/log/vps-host-audit")
+VPS_HOST_AUDIT_METRICS_PATH = _env_str(
+    "VPS_HOST_AUDIT_METRICS_PATH",
+    "/var/lib/node_exporter/textfile_collector/vps_host_audit.prom",
+)
 
 DEFAULT_TASK_PRIORITY = 50
 TASK_PRIORITY_BY_SEVERITY = {
