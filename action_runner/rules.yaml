@@ -145,12 +145,15 @@ rules:
             analysis_level_in: ["warning", "critical"]
           payload:
             format: message
-            message: "[ADMIN][{{ analysis_level|upper }}] unattended audit findings on {{ instance }}"
-            description: |
-              findings: {{ analysis_findings_count }}
-              {{ analysis_summary }}
-
-              log: {{ analysis_log_path }}
+            title: "[ADMIN][{{ analysis_level|upper }}] {{ instance }} audit findings"
+            facts:
+              - key: findings
+                value: "{{ analysis_findings_count }}"
+              - key: level
+                value: "{{ analysis_level }}"
+              - key: log
+                value: "{{ analysis_log_path }}"
+            body: "{{ analysis_summary }}"
             source: "action-runner"
             event: "admin_host_audit_findings"
             severity: "{{ analysis_level }}"
