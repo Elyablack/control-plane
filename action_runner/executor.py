@@ -195,6 +195,32 @@ def _step_matches_when(step: dict[str, Any], context: dict[str, Any]) -> bool:
     raise ValueError(f"unsupported step.when condition: {sorted(when.keys())}")
 
 
+def _build_chain_result(
+    *,
+    status: str,
+    chain_started_at: str,
+    first_run_id: int | None,
+    last_run_id: int | None,
+    run_ids: list[int],
+    queued_task_ids: list[int],
+    step_run_summary: list[dict[str, Any]],
+    step_results: list[dict[str, Any]],
+    context: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "status": status,
+        "started_at": chain_started_at,
+        "finished_at": now_utc(),
+        "first_run_id": first_run_id,
+        "last_run_id": last_run_id,
+        "run_ids": run_ids,
+        "queued_task_ids": queued_task_ids,
+        "step_run_summary": step_run_summary,
+        "step_results": step_results,
+        "chain_context": context,
+    }
+
+
 def execute_chain(
     steps: list[dict[str, Any]],
     *,
@@ -208,6 +234,9 @@ def execute_chain(
     context = dict(chain_context or {})
     chain_started_at = now_utc()
     step_results: list[dict[str, Any]] = []
+    run_ids: list[int] = []
+    queued_task_ids: list[int] = []
+    step_run_summary: list[dict[str, Any]] = []
     first_run_id: int | None = None
     last_run_id: int | None = None
     final_chain_status = "success"
@@ -245,6 +274,14 @@ def execute_chain(
                 },
             }
             step_results.append(step_entry)
+            step_run_summary.append(
+                {
+                    "step": index,
+                    "action": action_name,
+                    "status": "skipped",
+                    "reason": "step condition not matched",
+                }
+            )
             context.update(
                 {
                     "step_count": len(step_results),
@@ -258,6 +295,7 @@ def execute_chain(
 
         if action_name == "notify_tg" and queue_notify_task is not None:
             notify_task_id = queue_notify_task(rendered_payload)
+            queued_task_ids.append(notify_task_id)
 
             step_entry = {
                 "step": index,
@@ -270,6 +308,14 @@ def execute_chain(
                 },
             }
             step_results.append(step_entry)
+            step_run_summary.append(
+                {
+                    "step": index,
+                    "action": action_name,
+                    "status": "queued",
+                    "queued_task_id": notify_task_id,
+                }
+            )
 
             context.update(
                 {
@@ -301,6 +347,7 @@ def execute_chain(
                 if first_run_id is None:
                     first_run_id = run_id
                 last_run_id = run_id
+                run_ids.append(run_id)
 
             if _chain_should_continue(str(result.get("status", "failed"))):
                 break
@@ -316,6 +363,29 @@ def execute_chain(
             "result": final_result,
         }
         step_results.append(step_entry)
+
+        if final_result is None:
+            step_run_summary.append(
+                {
+                    "step": index,
+                    "action": action_name,
+                    "status": "failed",
+                    "reason": "no final result",
+                }
+            )
+        else:
+            summary_entry = {
+                "step": index,
+                "action": action_name,
+                "status": str(final_result.get("status", "failed")),
+            }
+            run_id = final_result.get("run_id")
+            if isinstance(run_id, int):
+                summary_entry["run_id"] = run_id
+            exit_code = final_result.get("exit_code")
+            if exit_code is not None:
+                summary_entry["exit_code"] = exit_code
+            step_run_summary.append(summary_entry)
 
         context.update(
             {
@@ -333,36 +403,42 @@ def execute_chain(
 
         if final_result is None:
             final_chain_status = "failed"
-            return {
-                "status": final_chain_status,
-                "started_at": chain_started_at,
-                "finished_at": now_utc(),
-                "first_run_id": first_run_id,
-                "last_run_id": last_run_id,
-                "step_results": step_results,
-                "chain_context": context,
-            }
+            return _build_chain_result(
+                status=final_chain_status,
+                chain_started_at=chain_started_at,
+                first_run_id=first_run_id,
+                last_run_id=last_run_id,
+                run_ids=run_ids,
+                queued_task_ids=queued_task_ids,
+                step_run_summary=step_run_summary,
+                step_results=step_results,
+                context=context,
+            )
 
         final_step_status = str(final_result.get("status", "failed"))
         if not _chain_should_continue(final_step_status):
             final_chain_status = final_step_status
-            return {
-                "status": final_chain_status,
-                "started_at": chain_started_at,
-                "finished_at": now_utc(),
-                "first_run_id": first_run_id,
-                "last_run_id": last_run_id,
-                "step_results": step_results,
-                "chain_context": context,
-            }
+            return _build_chain_result(
+                status=final_chain_status,
+                chain_started_at=chain_started_at,
+                first_run_id=first_run_id,
+                last_run_id=last_run_id,
+                run_ids=run_ids,
+                queued_task_ids=queued_task_ids,
+                step_run_summary=step_run_summary,
+                step_results=step_results,
+                context=context,
+            )
 
     final_chain_status = "success"
-    return {
-        "status": final_chain_status,
-        "started_at": chain_started_at,
-        "finished_at": now_utc(),
-        "first_run_id": first_run_id,
-        "last_run_id": last_run_id,
-        "step_results": step_results,
-        "chain_context": context,
-    }
+    return _build_chain_result(
+        status=final_chain_status,
+        chain_started_at=chain_started_at,
+        first_run_id=first_run_id,
+        last_run_id=last_run_id,
+        run_ids=run_ids,
+        queued_task_ids=queued_task_ids,
+        step_run_summary=step_run_summary,
+        step_results=step_results,
+        context=context,
+    )
