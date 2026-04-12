@@ -20,8 +20,17 @@ def _slot_key(now: datetime) -> str:
 
 
 def _is_due(schedule: dict, now: datetime) -> bool:
+    weekdays = schedule.get("weekdays", [])
+    if not isinstance(weekdays, list):
+        return False
+
+    try:
+        allowed_weekdays = {int(value) for value in weekdays}
+    except (TypeError, ValueError):
+        return False
+
     return (
-        int(schedule["weekday"]) == now.weekday()
+        now.weekday() in allowed_weekdays
         and int(schedule["hour"]) == now.hour
         and int(schedule["minute"]) == now.minute
     )
