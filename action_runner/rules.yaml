@@ -171,6 +171,11 @@ rules:
             days: 7
             retention_count: 10
 
+        - name: copy_file_to_mac
+          payload:
+            source_path: "{{ markdown_path }}"
+            target_dir: "~/Documents/control-plane-reviews"
+
         - name: notify_tg
           payload:
             format: message
@@ -178,7 +183,9 @@ rules:
             facts:
               - key: path
                 value: "{{ markdown_path }}"
-            body: "Weekly review snapshot saved."
+              - key: mac_copy
+                value: "~/Documents/control-plane-reviews"
+            body: "Weekly review snapshot saved and copied to Mac."
             source: "action-runner"
             event: "weekly_ops_review_generated"
             severity: "info"
