@@ -191,3 +191,45 @@ rules:
             severity: "info"
             status: "firing"
     cooldown_seconds: 3600
+
+  - name: vps_host_audit_daily
+    enabled: true
+    match:
+      alertname: VpsHostAuditDaily
+      status: firing
+      severity: info
+    action:
+      type: chain
+      steps:
+        - name: run_vps_host_audit
+          payload:
+            log_dir: /var/log/vps-host-audit
+            timeout_seconds: 120
+
+        - name: verify_vps_host_audit
+          payload:
+            log_dir: /var/log/vps-host-audit
+            max_age_seconds: 1800
+
+        - name: analyze_vps_host_audit
+          payload:
+            log_dir: /var/log/vps-host-audit
+            metrics_path: /var/lib/node_exporter/textfile_collector/vps_host_audit.prom
+
+        - name: notify_tg
+          when:
+            analysis_level_in: ["warning", "critical"]
+          payload:
+            format: message
+            title: "[VPS][{{ analysis_level|upper }}] host audit findings"
+            facts:
+              - key: findings
+                value: "{{ analysis_findings_count }}"
+              - key: log
+                value: "{{ analysis_log_path }}"
+            body: "{{ analysis_summary }}"
+            source: "action-runner"
+            event: "vps_host_audit_findings"
+            severity: "{{ analysis_level }}"
+            status: "firing"
+    cooldown_seconds: 3600

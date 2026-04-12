@@ -26,3 +26,17 @@ schedules:
       job: scheduler
       summary: scheduled weekly ops review
       description: internal scheduled trigger for weekly ops review generation
+
+  - name: vps_host_audit_daily
+    enabled: true
+    weekday: 0
+    hour: 4
+    minute: 30
+    signal:
+      alertname: VpsHostAuditDaily
+      status: firing
+      severity: info
+      instance: vps
+      job: scheduler
+      summary: scheduled daily vps host audit
+      description: internal scheduled trigger for vps host audit workflow
