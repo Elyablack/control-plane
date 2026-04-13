@@ -114,84 +114,6 @@ rules:
       type: ignore
     cooldown_seconds: 0
 
-  - name: admin_host_audit_weekly
-    enabled: true
-    match:
-      alertname: AdminHostAuditWeekly
-      status: firing
-    action:
-      type: chain
-      steps:
-        - name: run_admin_host_audit
-          payload:
-            host: admin
-            timeout_seconds: 120
-
-        - name: verify_admin_host_audit
-          payload:
-            host: admin
-            log_dir: /var/log/admin-host-audit
-            max_age_seconds: 1800
-            timeout_seconds: 30
-
-        - name: analyze_admin_host_audit
-          payload:
-            host: admin
-            log_dir: /var/log/admin-host-audit
-            timeout_seconds: 30
-
-        - name: notify_tg
-          when:
-            analysis_level_in: ["warning", "critical"]
-          payload:
-            format: message
-            message: "[ADMIN][{{ analysis_level|upper }}] unattended audit findings on {{ instance }}"
-            description: |
-              findings: {{ analysis_findings_count }}
-              {{ analysis_summary }}
-
-              log: {{ analysis_log_path }}
-            source: "action-runner"
-            event: "admin_host_audit_findings"
-            severity: "{{ analysis_level }}"
-            status: "firing"
-    cooldown_seconds: 3600
-
-  - name: weekly_ops_review_generate
-    enabled: true
-    match:
-      alertname: WeeklyOpsReview
-      status: firing
-      severity: info
-    action:
-      type: chain
-      steps:
-        - name: generate_weekly_ops_review
-          payload:
-            days: 7
-            retention_count: 10
-
-        - name: copy_file_to_mac
-          payload:
-            source_path: "{{ markdown_path }}"
-            target_dir: "~/Documents/control-plane-reviews"
-
-        - name: notify_tg
-          payload:
-            format: message
-            title: "[WEEKLY] ops review generated"
-            facts:
-              - key: path
-                value: "{{ markdown_path }}"
-              - key: mac_copy
-                value: "~/Documents/control-plane-reviews"
-            body: "Weekly review snapshot saved and copied to Mac."
-            source: "action-runner"
-            event: "weekly_ops_review_generated"
-            severity: "info"
-            status: "firing"
-    cooldown_seconds: 3600
-
   - name: vps_host_audit_daily
     enabled: true
     match:
@@ -216,20 +138,135 @@ rules:
             log_dir: /var/log/vps-host-audit
             metrics_path: /var/lib/node_exporter/textfile_collector/vps_host_audit.prom
 
+        - name: generate_ai_ops_brief
+          when:
+            analysis_level_in: ["warning", "critical"]
+          payload:
+            source: vps_host_audit
+            analysis_level: "{{ analysis_level }}"
+            analysis_summary: "{{ analysis_summary }}"
+            analysis_findings_count: "{{ analysis_findings_count }}"
+            analysis_log_path: "{{ analysis_log_path }}"
+            facts:
+              host: vps
+              metrics_path: "{{ metrics_path }}"
+
+        - name: copy_file_to_mac
+          when:
+            analysis_level_in: ["warning", "critical"]
+          payload:
+            source_path: "{{ markdown_path }}"
+            target_dir: "~/Documents/control-plane-reviews/briefs"
+
         - name: notify_tg
           when:
             analysis_level_in: ["warning", "critical"]
           payload:
             format: message
-            title: "[VPS][{{ analysis_level|upper }}] host audit findings"
+            title: "[VPS][{{ analysis_level|upper }}] audit brief"
             facts:
-              - key: findings
-                value: "{{ analysis_findings_count }}"
-              - key: log
-                value: "{{ analysis_log_path }}"
+              - key: brief
+                value: "{{ brief_status }}"
+              - key: file
+                value: "{{ markdown_path }}"
             body: "{{ analysis_summary }}"
-            source: "action-runner"
-            event: "vps_host_audit_findings"
+            source: action-runner
+            event: vps_host_audit_brief
             severity: "{{ analysis_level }}"
-            status: "firing"
+            status: firing
+    cooldown_seconds: 3600
+
+  - name: admin_host_audit_weekly
+    enabled: true
+    match:
+      alertname: AdminHostAuditWeekly
+      status: firing
+      severity: info
+    action:
+      type: chain
+      steps:
+        - name: run_admin_host_audit
+          payload:
+            host: admin
+            log_dir: /var/log/mac-audit
+
+        - name: verify_admin_host_audit
+          payload:
+            log_dir: /var/log/mac-audit
+            max_age_seconds: 93600
+
+        - name: analyze_admin_host_audit
+          payload:
+            host: admin
+            log_dir: /var/log/mac-audit
+
+        - name: generate_ai_ops_brief
+          when:
+            analysis_level_in: ["warning", "critical"]
+          payload:
+            source: admin_host_audit
+            analysis_level: "{{ analysis_level }}"
+            analysis_summary: "{{ analysis_summary }}"
+            analysis_findings_count: "{{ analysis_findings_count }}"
+            analysis_log_path: "{{ analysis_log_path }}"
+            facts:
+              host: admin
+              metrics_path: "{{ metrics_path }}"
+
+        - name: copy_file_to_mac
+          when:
+            analysis_level_in: ["warning", "critical"]
+          payload:
+            source_path: "{{ markdown_path }}"
+            target_dir: "~/Documents/control-plane-reviews/briefs"
+
+        - name: notify_tg
+          when:
+            analysis_level_in: ["warning", "critical"]
+          payload:
+            format: message
+            title: "[ADMIN][{{ analysis_level|upper }}] audit brief"
+            facts:
+              - key: brief
+                value: "{{ brief_status }}"
+              - key: file
+                value: "{{ markdown_path }}"
+            body: "{{ analysis_summary }}"
+            source: action-runner
+            event: admin_host_audit_brief
+            severity: "{{ analysis_level }}"
+            status: firing
+    cooldown_seconds: 3600
+
+  - name: weekly_ops_review_generate
+    enabled: true
+    match:
+      alertname: WeeklyOpsReview
+      status: firing
+      severity: info
+    action:
+      type: chain
+      steps:
+        - name: generate_weekly_ops_review
+          payload:
+            days: 7
+            retention_count: 10
+
+        - name: copy_file_to_mac
+          payload:
+            source_path: "{{ markdown_path }}"
+            target_dir: "~/Documents/control-plane-reviews/weekly"
+
+        - name: notify_tg
+          payload:
+            format: message
+            title: "[WEEKLY] ops review generated"
+            facts:
+              - key: file
+                value: "{{ markdown_path }}"
+            body: "Weekly review saved."
+            source: action-runner
+            event: weekly_ops_review_generated
+            severity: info
+            status: firing
     cooldown_seconds: 3600
