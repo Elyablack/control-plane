@@ -188,17 +188,17 @@ rules:
         - name: run_admin_host_audit
           payload:
             host: admin
-            log_dir: /var/log/mac-audit
+            log_dir: /var/log/admin-host-audit
 
         - name: verify_admin_host_audit
           payload:
-            log_dir: /var/log/mac-audit
+            log_dir: /var/log/admin-host-audit
             max_age_seconds: 93600
 
         - name: analyze_admin_host_audit
           payload:
             host: admin
-            log_dir: /var/log/mac-audit
+            log_dir: /var/log/admin-host-audit
 
         - name: generate_ai_ops_brief
           when:

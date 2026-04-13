@@ -39,8 +39,13 @@ INCLUDED_OPERATIONAL_ACTIONS = {
     "run_admin_host_audit",
     "verify_admin_host_audit",
     "analyze_admin_host_audit",
+    "run_vps_host_audit",
+    "verify_vps_host_audit",
+    "analyze_vps_host_audit",
+    "generate_ai_ops_brief",
     "notify_tg",
     "enqueue_mac_action",
+    "copy_file_to_mac",
 }
 LEGACY_AUDIT_SUMMARY_PATTERNS = (
     "infra-backups path missing",
@@ -103,6 +108,39 @@ def _extract_result_json(stdout: str) -> dict[str, Any] | None:
         return None
 
     return parsed if isinstance(parsed, dict) else None
+
+
+def _brief_source_label(source: str) -> str:
+    text = (source or "").strip()
+    return text if text else "unknown"
+
+
+def _extract_brief_from_run(row: sqlite3.Row) -> dict[str, Any] | None:
+    result_json = _extract_result_json(row["stdout"] or "")
+    if not result_json:
+        return None
+
+    source = _brief_source_label(str(result_json.get("source", "")))
+    markdown_path = str(result_json.get("markdown_path", "") or "")
+    json_path = str(result_json.get("json_path", "") or "")
+    brief_status = str(result_json.get("brief_status", "") or "")
+    executive_summary = str(result_json.get("executive_summary", "") or "")
+
+    if not markdown_path and not json_path:
+        return None
+
+    return {
+        "id": row["id"],
+        "source": source,
+        "status": row["status"],
+        "started_at": row["started_at"],
+        "finished_at": row["finished_at"],
+        "exit_code": row["exit_code"],
+        "brief_status": brief_status,
+        "executive_summary": executive_summary,
+        "markdown_path": markdown_path,
+        "json_path": json_path,
+    }
 
 
 def _is_excluded_alert(alertname: str, severity: str) -> bool:
@@ -335,6 +373,44 @@ def _build_weekly_summary(*, db_path: str, since_utc: str, until_utc: str) -> di
                 }
             )
 
+        vps_audit_rows = _query_rows(
+            conn,
+            """
+            select id, status, started_at, finished_at, exit_code, stdout, error
+            from runs
+            where action = 'analyze_vps_host_audit'
+              and started_at >= ? and started_at <= ?
+              and status != 'running'
+            order by started_at desc
+            limit 30
+            """,
+            (since_utc, until_utc),
+        )
+        vps_audit_reviews: list[dict[str, Any]] = []
+        for row in vps_audit_rows:
+            result_json = _extract_result_json(row["stdout"] or "")
+            raw_summary = str((result_json or {}).get("analysis_summary", "") or "")
+            findings_count = len(_split_findings(raw_summary))
+
+            if not _is_meaningful_audit_review(str(row["status"] or ""), raw_summary, findings_count):
+                continue
+
+            vps_audit_reviews.append(
+                {
+                    "id": row["id"],
+                    "status": row["status"],
+                    "started_at": row["started_at"],
+                    "finished_at": row["finished_at"],
+                    "exit_code": row["exit_code"],
+                    "error": row["error"] or "",
+                    "analysis_level": (result_json or {}).get("analysis_level", ""),
+                    "analysis_findings_count": findings_count,
+                    "analysis_summary": raw_summary,
+                    "analysis_log_path": (result_json or {}).get("analysis_log_path", ""),
+                    "metrics_path": (result_json or {}).get("metrics_path", ""),
+                }
+            )
+
         mac_alert_rows = _query_rows(
             conn,
             """
@@ -424,6 +500,35 @@ def _build_weekly_summary(*, db_path: str, since_utc: str, until_utc: str) -> di
             if _is_operational_failure_action(str(row["action"] or ""))
         ][:15]
 
+        brief_rows = _query_rows(
+            conn,
+            """
+            select id, action, status, started_at, finished_at, exit_code, stdout
+            from runs
+            where action = 'generate_ai_ops_brief'
+              and started_at >= ? and started_at <= ?
+              and status = 'success'
+            order by started_at desc
+            limit 30
+            """,
+            (since_utc, until_utc),
+        )
+
+        recent_ops_briefs: list[dict[str, Any]] = []
+        seen_sources: set[str] = set()
+
+        for row in brief_rows:
+            item = _extract_brief_from_run(row)
+            if not item:
+                continue
+
+            source = str(item["source"])
+            if source in seen_sources:
+                continue
+
+            seen_sources.add(source)
+            recent_ops_briefs.append(item)
+
         summary = {
             "window": {
                 "since_utc": since_utc,
@@ -440,9 +545,11 @@ def _build_weekly_summary(*, db_path: str, since_utc: str, until_utc: str) -> di
             "run_status_counts": run_status_counts,
             "backup_runs": backup_runs,
             "admin_audit_reviews": audit_reviews,
+            "vps_audit_reviews": vps_audit_reviews,
             "mac_memory_alerts": mac_alerts,
             "mac_remediation_tasks": mac_actions,
             "latest_failures": latest_failures,
+            "recent_ops_briefs": recent_ops_briefs,
         }
         return summary
     finally:
@@ -653,6 +760,20 @@ def _render_markdown(summary: dict[str, Any], review: dict[str, Any]) -> str:
     for item in review.get("recommended_actions", []):
         lines.append(f"- **{item.get('priority', '')}**: {item.get('action', '')}")
         lines.append(f"  - why: {item.get('why', '')}")
+
+    recent_briefs = summary.get("recent_ops_briefs", [])
+    if recent_briefs:
+        lines.append("")
+        lines.append("## Recent AI briefs")
+        lines.append("")
+        for item in recent_briefs:
+            lines.append(f"- **{item.get('source', '')}** [{item.get('brief_status', '')}]")
+            if item.get("executive_summary"):
+                lines.append(f"  - summary: {item.get('executive_summary', '')}")
+            if item.get("markdown_path"):
+                lines.append(f"  - markdown: {item.get('markdown_path', '')}")
+            if item.get("json_path"):
+                lines.append(f"  - json: {item.get('json_path', '')}")
 
     lines.append("")
     lines.append("## Raw counters")
