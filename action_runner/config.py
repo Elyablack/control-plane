@@ -39,6 +39,7 @@ ALLOWED_ACTIONS = {
     "run_vps_host_audit",
     "verify_vps_host_audit",
     "analyze_vps_host_audit",
+    "generate_ai_ops_brief",
 }
 
 BACKUP_SCRIPT = _env_str("BACKUP_SCRIPT", "/srv/control-plane/backup/run_backup.sh")
@@ -54,6 +55,7 @@ RESEND_TIMEOUT_SECONDS = _env_int("RESEND_TIMEOUT_SECONDS", 15)
 OPENAI_API_KEY = _env_str("OPENAI_API_KEY")
 OPENAI_BASE_URL = _env_str("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
 OPENAI_WEEKLY_REVIEW_MODEL = _env_str("OPENAI_WEEKLY_REVIEW_MODEL", "gpt-5.4-nano")
+OPENAI_OPS_BRIEF_MODEL = _env_str("OPENAI_OPS_BRIEF_MODEL", OPENAI_WEEKLY_REVIEW_MODEL)
 
 MAC_REVIEW_SSH_TARGET = _env_str("MAC_REVIEW_SSH_TARGET", "mac")
 MAC_REVIEW_DOCS_DIR = _env_str("MAC_REVIEW_DOCS_DIR", "~/Documents/control-plane-reviews")

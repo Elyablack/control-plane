@@ -14,7 +14,7 @@ from ..config import OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_WEEKLY_REVIEW_MODEL
 from .types import ActionResult
 
 DEFAULT_DB_PATH = "/srv/control-plane/state/action_runner.db"
-DEFAULT_REVIEW_DIR = "/srv/control-plane/state/reviews"
+DEFAULT_REVIEW_DIR = "/srv/control-plane/state/reviews/weekly"
 DEFAULT_MODEL = OPENAI_WEEKLY_REVIEW_MODEL
 DEFAULT_DAYS = 7
 DEFAULT_RETENTION_COUNT = 10
