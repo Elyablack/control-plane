@@ -176,10 +176,10 @@ rules:
             status: firing
     cooldown_seconds: 3600
 
-  - name: admin_host_audit_weekly
+  - name: admin_host_audit_daily
     enabled: true
     match:
-      alertname: AdminHostAuditWeekly
+      alertname: AdminHostAuditDaily
       status: firing
       severity: info
     action:
@@ -193,7 +193,7 @@ rules:
         - name: verify_admin_host_audit
           payload:
             log_dir: /var/log/admin-host-audit
-            max_age_seconds: 93600
+            max_age_seconds: 1800
 
         - name: analyze_admin_host_audit
           payload:

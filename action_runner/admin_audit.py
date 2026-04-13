@@ -4,6 +4,13 @@ import re
 from dataclasses import dataclass
 
 
+MAX_UPGRADABLE_PACKAGES_NOISE = 5
+NOISE_MESSAGE_PATTERNS = (
+    "broadcom wifi watchdog events detected",
+    "recent kernel wifi watchdog/errors detected",
+)
+
+
 @dataclass(frozen=True, slots=True)
 class AuditFinding:
     severity: str
@@ -83,10 +90,10 @@ def extract_log_path_from_prefixed_output(text: str) -> tuple[str | None, str]:
 
 
 def analyze_admin_audit_text(text: str, *, log_path: str | None = None) -> AuditAnalysis:
-    findings: list[AuditFinding] = []
+    raw_findings: list[AuditFinding] = []
 
     def add(severity: str, kind: str, message: str) -> None:
-        findings.append(AuditFinding(severity=severity, kind=kind, message=message))
+        raw_findings.append(AuditFinding(severity=severity, kind=kind, message=message))
 
     network_section = _extract_section(text, "NETWORK CHECK", "MEMORY + SWAP")
     network_services_section = _extract_section(text, "NETWORK + TAILSCALE", "SSH LISTEN")
@@ -213,6 +220,8 @@ def analyze_admin_audit_text(text: str, *, log_path: str | None = None) -> Audit
     timemachine_age_seconds = _extract_nonnegative_int(r"timemachine_age_seconds:\s*(-?\d+)", text)
     audit_log_age_seconds = _extract_nonnegative_int(r"audit_log_age_seconds:\s*(-?\d+)", text)
 
+    findings = _filter_noise_findings(raw_findings)
+
     overall = "ok"
     severities = {finding.severity for finding in findings}
     if "critical" in severities:
@@ -248,6 +257,23 @@ def analyze_admin_audit_text(text: str, *, log_path: str | None = None) -> Audit
         timemachine_age_seconds=timemachine_age_seconds,
         audit_log_age_seconds=audit_log_age_seconds,
     )
+
+
+def _filter_noise_findings(findings: list[AuditFinding]) -> list[AuditFinding]:
+    return [finding for finding in findings if not _is_noise_finding(finding)]
+
+
+def _is_noise_finding(finding: AuditFinding) -> bool:
+    lowered = finding.message.strip().lower()
+
+    if any(pattern in lowered for pattern in NOISE_MESSAGE_PATTERNS):
+        return True
+
+    match = re.fullmatch(r"(\d+)\s+upgradable packages?", lowered)
+    if match:
+        return int(match.group(1)) <= MAX_UPGRADABLE_PACKAGES_NOISE
+
+    return False
 
 
 def _extract_section(text: str, start_title: str, end_title: str) -> str:

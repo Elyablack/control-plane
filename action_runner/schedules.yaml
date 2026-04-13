@@ -1,16 +1,16 @@
 schedules:
-  - name: admin_host_audit_weekly
+  - name: admin_host_audit_daily
     enabled: true
-    weekday: 6
+    daily: true
     hour: 4
     minute: 0
     signal:
-      alertname: AdminHostAuditWeekly
+      alertname: AdminHostAuditDaily
       status: firing
       severity: info
       instance: admin
       job: scheduler
-      summary: scheduled weekly admin host audit
+      summary: scheduled daily admin host audit
       description: internal scheduled trigger for admin host audit workflow
 
   - name: weekly_ops_review
