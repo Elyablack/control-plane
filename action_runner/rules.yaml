@@ -270,3 +270,67 @@ rules:
             severity: info
             status: firing
     cooldown_seconds: 3600
+
+  - name: monitoring_stack_audit_daily
+    enabled: true
+    match:
+      alertname: MonitoringStackAuditDaily
+      status: firing
+      severity: info
+    action:
+      type: chain
+      steps:
+        - name: run_monitoring_stack_audit
+          payload:
+            log_dir: /var/log/monitoring-stack-audit
+            timeout_seconds: 60
+            http_timeout_seconds: 5
+            prometheus_base_url: http://127.0.0.1:9090
+
+        - name: verify_monitoring_stack_audit
+          payload:
+            log_dir: /var/log/monitoring-stack-audit
+            max_age_seconds: 1800
+
+        - name: analyze_monitoring_stack_audit
+          payload:
+            log_dir: /var/log/monitoring-stack-audit
+            metrics_path: /var/lib/node_exporter/textfile_collector/monitoring_stack_audit.prom
+
+        - name: generate_ai_ops_brief
+          when:
+            analysis_level_in: ["warning", "critical"]
+          payload:
+            source: monitoring_stack_audit
+            analysis_level: "{{ analysis_level }}"
+            analysis_summary: "{{ analysis_summary }}"
+            analysis_findings_count: "{{ analysis_findings_count }}"
+            analysis_log_path: "{{ analysis_log_path }}"
+            facts:
+              host: vps
+              metrics_path: "{{ metrics_path }}"
+
+        - name: copy_file_to_mac
+          when:
+            analysis_level_in: ["warning", "critical"]
+          payload:
+            source_path: "{{ markdown_path }}"
+            target_dir: "~/Documents/control-plane-reviews/briefs"
+
+        - name: notify_tg
+          when:
+            analysis_level_in: ["warning", "critical"]
+          payload:
+            format: message
+            title: "[STACK][{{ analysis_level|upper }}] audit brief"
+            facts:
+              - key: brief
+                value: "{{ brief_status }}"
+              - key: file
+                value: "{{ markdown_path }}"
+            body: "{{ analysis_summary }}"
+            source: action-runner
+            event: monitoring_stack_audit_brief
+            severity: "{{ analysis_level }}"
+            status: firing
+    cooldown_seconds: 3600

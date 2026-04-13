@@ -34,12 +34,15 @@ ALLOWED_ACTIONS = {
     "run_admin_host_audit",
     "verify_admin_host_audit",
     "analyze_admin_host_audit",
-    "generate_weekly_ops_review",
-    "copy_file_to_mac",
     "run_vps_host_audit",
     "verify_vps_host_audit",
     "analyze_vps_host_audit",
+    "run_monitoring_stack_audit",
+    "verify_monitoring_stack_audit",
+    "analyze_monitoring_stack_audit",
+    "generate_weekly_ops_review",
     "generate_ai_ops_brief",
+    "copy_file_to_mac",
 }
 
 BACKUP_SCRIPT = _env_str("BACKUP_SCRIPT", "/srv/control-plane/backup/run_backup.sh")
@@ -66,6 +69,19 @@ VPS_HOST_AUDIT_LOG_DIR = _env_str("VPS_HOST_AUDIT_LOG_DIR", "/var/log/vps-host-a
 VPS_HOST_AUDIT_METRICS_PATH = _env_str(
     "VPS_HOST_AUDIT_METRICS_PATH",
     "/var/lib/node_exporter/textfile_collector/vps_host_audit.prom",
+)
+
+MONITORING_STACK_AUDIT_LOG_DIR = _env_str(
+    "MONITORING_STACK_AUDIT_LOG_DIR",
+    "/var/log/monitoring-stack-audit",
+)
+MONITORING_STACK_AUDIT_METRICS_PATH = _env_str(
+    "MONITORING_STACK_AUDIT_METRICS_PATH",
+    "/var/lib/node_exporter/textfile_collector/monitoring_stack_audit.prom",
+)
+MONITORING_STACK_AUDIT_PROMETHEUS_URL = _env_str(
+    "MONITORING_STACK_AUDIT_PROMETHEUS_URL",
+    "http://127.0.0.1:9090",
 )
 
 DEFAULT_TASK_PRIORITY = 50
