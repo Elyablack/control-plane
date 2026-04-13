@@ -11,9 +11,9 @@
 ![macOS](https://img.shields.io/badge/-macOS-464646?style=flat&logo=apple&logoColor=56C0C0&color=008080)
 ![Orchestration](https://img.shields.io/badge/-Orchestration-464646?style=flat&logo=apacheairflow&logoColor=56C0C0&color=008080)
 
-Alert-driven orchestration engine that receives signals, evaluates policy, creates decisions, queues tasks, executes actions, tracks outcomes, and now also generates AI-assisted weekly operational reviews.
+Alert-driven orchestration engine that receives signals, evaluates policy, creates decisions, queues tasks, executes actions, tracks outcomes, and now also generates bounded AI-assisted operational artifacts.
 
-This repository turns monitoring and internal scheduler signals into controlled operational workflows.
+This repository turns monitoring signals and internal scheduled signals into controlled operational workflows.
 
 ## Core pipeline
 
@@ -35,11 +35,14 @@ The project currently includes:
 - action chaining with retries
 - action locking and cooldowns
 - SQLite-backed state tracking
+- VPS host audit workflow
+- monitoring stack audit workflow
 - admin host audit workflow
 - backup workflow integration
 - remote mac remediation integration
-- AI-assisted weekly ops review generation via OpenAI API
-- review artifact delivery to Mac Documents
+- AI ops brief generation via OpenAI API
+- AI weekly ops review generation via OpenAI API
+- review and brief artifact delivery to Mac Documents
 - read-only pipeline API
 - Prometheus metrics for pipeline visibility
 
@@ -57,30 +60,33 @@ It is designed to answer:
 - should multiple actions run as a workflow chain
 - how to record the operational outcome
 - how to expose the full pipeline safely for inspection
-- how to generate a structured weekly operational review from accumulated state
+- how to generate bounded AI summaries from accumulated operational state
 
 Typical workflow:
 
-    Alertmanager or scheduler
-       │
-       ▼
-    action-runner
-       │
-       ├── decision: ignore
-       ├── decision: execute
-       ├── decision: cooldown
-       └── decision: execute_chain
-                │
-                ▼
-             task queue
-                │
-                ▼
-           worker execution
-                │
-                ├── local action run
-                ├── notify task
-                ├── remote mac_action task
-                └── weekly review artifact generation
+```
+Alertmanager or scheduler
+   │
+   ▼
+action-runner
+   │
+   ├── decision: ignore
+   ├── decision: execute
+   ├── decision: cooldown
+   └── decision: execute_chain
+            │
+            ▼
+         task queue
+            │
+            ▼
+       worker execution
+            │
+            ├── local action run
+            ├── notify task
+            ├── remote mac_action task
+            ├── audit artifact generation
+            └── AI review / brief generation
+```
 
 ---
 
@@ -101,7 +107,7 @@ Responsibilities:
 - execute actions and chains
 - expose read-only API endpoints
 - expose Prometheus metrics
-- generate AI-assisted weekly review artifacts
+- generate bounded AI review artifacts
 
 Important modules:
 
@@ -134,6 +140,13 @@ Current action model includes:
 - `run_admin_host_audit`
 - `verify_admin_host_audit`
 - `analyze_admin_host_audit`
+- `run_vps_host_audit`
+- `verify_vps_host_audit`
+- `analyze_vps_host_audit`
+- `run_monitoring_stack_audit`
+- `verify_monitoring_stack_audit`
+- `analyze_monitoring_stack_audit`
+- `generate_ai_ops_brief`
 - `generate_weekly_ops_review`
 - `copy_file_to_mac`
 
@@ -180,7 +193,10 @@ Focused project documentation:
 - API usage
 - architecture
 - admin host audit flow
-- operational notes
+- VPS host audit flow  
+- monitoring stack audit flow
+- AI ops briefs
+- weekly ops review
 
 ---
 
@@ -259,14 +275,32 @@ Typical use cases:
 
 ## Example 4 — admin host audit
 
-    AdminHostAuditWeekly
+    AdminHostAuditDaily
         -> decision: execute_chain
         -> run_admin_host_audit
         -> verify_admin_host_audit
         -> analyze_admin_host_audit
-        -> optional notify_tg on warning/critical
+        -> optional AI brief / Mac copy / notify on meaningful warning/critical
 
-## Example 5 — weekly ops review
+## **Example 5 — VPS host audit**
+
+    VpsHostAuditDaily
+        -> decision: execute_chain
+        -> run_vps_host_audit
+        -> verify_vps_host_audit
+        -> analyze_vps_host_audit
+        -> optional AI brief / Mac copy / notify on warning/critical
+
+## **Example 6 — monitoring stack audit**
+
+    MonitoringStackAuditDaily
+        -> decision: execute_chain
+        -> run_monitoring_stack_audit
+        -> verify_monitoring_stack_audit
+        -> analyze_monitoring_stack_audit
+        -> optional AI brief / Mac copy / notify on warning/critical
+
+## **Example 7 — weekly ops review**
 
     WeeklyOpsReview
         -> decision: execute_chain
@@ -352,7 +386,9 @@ Typical metric areas include:
 - queue depth
 - latest decision, task, and run timestamps
 - admin host audit derived metrics
-- weekly operational review artifacts through stored state
+- VPS host audit derived metrics  
+- monitoring stack audit derived metrics
+- weekly review artifacts and AI brief outcomes through stored state
 
 These metrics are used by the separate monitoring stack to build control-plane views and dashboards.
 
@@ -415,9 +451,59 @@ This means scheduled workflows and alert-driven workflows share the same:
 
 No external cron is required for scheduled workflows.
 
+Current scheduled domains include:
+
+- admin host audit
+- VPS host audit
+- monitoring stack audit
+- weekly ops review
+
 ---
 
-## Weekly ops review
+## AI ops briefs
+
+The project includes a shared AI brief layer for deterministic analyzer outputs.
+
+Purpose:
+
+- accept one structured analyzer result    
+- produce a short operator-facing brief
+- write markdown and JSON artifacts
+- support Mac copy and short Telegram notification
+
+Current sources include:
+
+- admin_host_audit
+- vps_host_audit
+- monitoring_stack_audit
+    
+Artifacts are stored on VPS in:
+
+```
+state/reviews/briefs/
+```
+
+Typical files:
+
+```
+brief-admin_host_audit-YYYY-MM-DD_HH-MM-SS.md
+brief-vps_host_audit-YYYY-MM-DD_HH-MM-SS.md
+brief-monitoring_stack_audit-YYYY-MM-DD_HH-MM-SS.md
+brief-*-latest.md
+brief-*-latest.json
+```
+
+Brief markdown files may also be copied to Mac:
+
+```
+~/Documents/control-plane-reviews/briefs
+```
+
+This gives the system a bounded AI interpretation layer without changing deterministic audit logic.
+
+---
+
+## **Weekly ops review**
 
 The project now includes AI-assisted weekly operational review generation via the OpenAI API.
 
@@ -427,12 +513,13 @@ The weekly review flow:
         -> WeeklyOpsReview
         -> generate_weekly_ops_review
         -> write JSON + Markdown snapshots on VPS
+        -> include recent AI brief references
         -> copy markdown snapshot to Mac Documents
         -> notify Telegram
 
 Artifacts are stored on VPS in:
 
-    state/reviews/
+    state/reviews/weekly/
 
 Typical files:
 
@@ -444,28 +531,63 @@ Typical files:
 The JSON artifact is intended for machine use and later automation.
 The Markdown artifact is intended for human reading.
 
-The current chain also copies the Markdown review to the Mac host, for example:
+The chain also copies the Markdown review to the Mac host:
 
-    ~/Documents/control-plane-reviews/
+    ~/Documents/control-plane-reviews/weekly
 
 This gives the system a lightweight AI review layer over accumulated operational history without changing the core execution model.
 
 ---
 
-## Admin host audit
+## **Audit domains**
 
-The admin host audit is now part of the control-plane workflow model.
+The project now has three deterministic audit domains.
 
-It is designed so that:
+## **Admin host audit**
 
-- the admin host reports state
+Designed so that:
+
+- the admin host reports state    
 - control-plane triggers audit execution
 - control-plane verifies freshness
 - control-plane analyzes findings
 - derived metrics are exported for Grafana and Prometheus
-- notifications are sent only on non-OK outcomes
+- low-value persistent noise can be filtered from automation outcomes
+- AI brief / Mac copy / notify run only on meaningful non-OK outcomes
 
-This keeps interpretation and orchestration in control-plane rather than in the raw host script.
+## **VPS host audit**
+
+Designed as a daily operational snapshot of the VPS that runs monitoring-stack and control-plane.
+
+It checks:
+
+- core systemd services    
+- Docker daemon and key containers
+- local service probes    
+- root disk and inode usage
+- swap and reboot state
+- fail2ban
+- journal priority<=3 signal volume
+- UFW posture
+- Tailscale serve exposure
+
+## **Monitoring stack audit**
+
+Designed as a daily operational snapshot of the observability runtime itself.
+
+It checks:
+
+- monitoring stack containers    
+- local readiness and health endpoints
+- Prometheus query API
+- required scrape targets
+- demo-app as canary workload
+- demo-app 5xx rate and p95 latency
+
+This separates:
+
+- host execution health    
+- from monitoring-system health
 
 ---
 
@@ -495,9 +617,9 @@ The HTTP surface is intended primarily for inspection and orchestration visibili
 
 Remote mac remediation is intentionally constrained and implemented as a task-driven workflow rather than unrestricted shell access.
 
-## AI review as bounded analysis
+## AI as bounded analysis
 
-The weekly review flow generates operational summaries and recommendations, but it does not directly perform unsafe remediation. It produces artifacts and notifications inside a constrained workflow.
+AI-generated briefs and weekly reviews produce artifacts and operator summaries, but they do not directly perform unsafe remediation.
 
 ---
 
@@ -511,7 +633,7 @@ Relationship:
         -> Prometheus
         -> Alertmanager
         -> control-plane
-        -> decisions / tasks / runs / remediation / weekly review
+            -> decisions / tasks / runs / remediation / briefs / weekly review
 
 The monitoring layer answers:
 
@@ -534,7 +656,11 @@ Additional project documentation:
 
 - `docs/architecture.md` — system overview and pipeline architecture
 - `docs/api.md` — practical API usage and curl examples
-- `docs/admin-host-audit-control-plane.md` — admin host audit workflow and metrics
+- `docs/admin-host-audit.md` — admin host audit workflow and metrics
+- `docs/vps-host-audit.md` — VPS host audit workflow
+- `docs/monitoring-stack-audit.md` — monitoring stack audit workflow
+- `docs/ai-ops-briefs.md` — shared AI brief layer
+- `docs/weekly-ops-review-control-plane.md` — weekly review flow
 
 ---
 
@@ -625,14 +751,25 @@ Validate:
 - remote mac worker polls task
 - task completion is reported back
 
-## 5. Weekly ops review flow
+## 5. Audit flows
+
+Validate for each audit domain:
+
+- scheduled or manual signal creates chain decision    
+- run_* succeeds
+- verify_* succeeds
+- analyze_* succeeds
+- derived metrics are updated
+- AI brief path runs only on meaningful warning or critical
+    
+## 6. Weekly ops review flow
 
 Validate:
 
-- scheduled or manual signal creates chain decision
-- `generate_weekly_ops_review` succeeds
-- review snapshot appears in `state/reviews/`
-- `weekly-latest.md` updates
+- scheduled or manual signal creates chain decision    
+- generate_weekly_ops_review succeeds
+- review snapshot appears in state/reviews/weekly/
+- weekly-latest.md updates
 - Markdown review is copied to Mac
 - Telegram notification is sent
 
@@ -644,46 +781,54 @@ See also:
 
 ## Repository structure
 
-    .
-    ├── Makefile
-    ├── action_runner/
-    │   ├── actions/
-    │   ├── app.py
-    │   ├── config.py
-    │   ├── events.py
-    │   ├── executor.py
-    │   ├── http_handler.py
-    │   ├── metrics.py
-    │   ├── rule_loader.py
-    │   ├── rules.py
-    │   ├── rules.yaml
-    │   ├── runtime.py
-    │   ├── schedule_loader.py
-    │   ├── scheduler.py
-    │   ├── schedules.yaml
-    │   ├── signal_service.py
-    │   ├── state.py
-    │   ├── task_service.py
-    │   ├── tools.py
-    │   └── worker.py
-    ├── agents/
-    │   └── mac_memory_guard/
-    ├── backup/
-    │   ├── backup_vps.yml
-    │   ├── offsite_copy.sh
-    │   └── run_backup.sh
-    ├── deploy/
-    │   └── mac/
-    ├── docs/
-    │   ├── admin-host-audit-control-plane.md
-    │   ├── api.md
-    │   └── architecture.md
-    ├── inventory/
-    │   └── hosts
-    ├── logs/
-    └── state/
-        ├── action_runner.db
-        └── reviews/
+```
+.
+├── Makefile
+├── action_runner/
+│   ├── actions/
+│   ├── app.py
+│   ├── config.py
+│   ├── events.py
+│   ├── executor.py
+│   ├── http_handler.py
+│   ├── metrics.py
+│   ├── rule_loader.py
+│   ├── rules.py
+│   ├── rules.yaml
+│   ├── runtime.py
+│   ├── schedule_loader.py
+│   ├── scheduler.py
+│   ├── schedules.yaml
+│   ├── signal_service.py
+│   ├── state.py
+│   ├── task_service.py
+│   ├── tools.py
+│   └── worker.py
+├── agents/
+│   └── mac_memory_guard/
+├── backup/
+│   ├── backup_vps.yml
+│   ├── offsite_copy.sh
+│   └── run_backup.sh
+├── deploy/
+│   └── mac/
+├── docs/
+│   ├── admin-host-audit-control-plane.md
+│   ├── ai-ops-briefs.md
+│   ├── api.md
+│   ├── architecture.md
+│   ├── monitoring-stack-audit.md
+│   ├── vps-host-audit.md
+│   └── weekly-ops-review-control-plane.md
+├── inventory/
+│   └── hosts
+├── logs/
+└── state/
+    ├── action_runner.db
+    └── reviews/
+        ├── briefs/
+        └── weekly/
+```
 
 ---
 
@@ -698,9 +843,12 @@ The orchestration pipeline is already functional and includes:
 - chained workflows
 - backup automation
 - admin host audit orchestration
+- VPS host audit orchestration  
+- monitoring stack audit orchestration
 - remote mac remediation
-- AI-assisted weekly operational review generation
-- review artifact delivery to Mac
+- AI ops brief generation
+- AI weekly operational review generation
+- artifact delivery to Mac
 - read-only pipeline visibility
 
 Documentation is being added incrementally through focused docs rather than a single oversized README.
