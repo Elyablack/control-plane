@@ -17,7 +17,7 @@ def run_cmd(cmd: List[str], *, check: bool = True) -> str:
 
 def run_cmd_optional(cmd: List[str]) -> str:
     try:
-        return run_cmd(cmd, check=True)
+        return run_cmd(cmd, check=False)
     except Exception:
         return ""
 
@@ -95,7 +95,14 @@ def parse_top_processes(limit: int = 5) -> List[ProcessInfo]:
         except ValueError:
             continue
 
-        processes.append(ProcessInfo(pid=pid, rss_kb=rss_kb, mem_percent=mem_percent, command=command))
+        processes.append(
+            ProcessInfo(
+                pid=pid,
+                rss_kb=rss_kb,
+                mem_percent=mem_percent,
+                command=command,
+            )
+        )
 
     processes.sort(key=lambda item: item.rss_kb, reverse=True)
     return processes[:limit]
@@ -117,19 +124,37 @@ def parse_power_source() -> str:
     return "unknown"
 
 
-def parse_tm_latest_backup() -> str:
-    out = run_cmd_optional(["tmutil", "latestbackup"])
-    return out.strip() if out else ""
-
-
 def parse_brew_outdated_count() -> Optional[int]:
     if not run_cmd_optional(["/usr/bin/which", "brew"]):
         return None
 
     out = run_cmd_optional(["brew", "outdated", "--quiet"])
-    if not out:
+    if not out.strip():
         return 0
+
     return len([line for line in out.splitlines() if line.strip()])
+
+
+def parse_timemachine_latest_backup() -> Optional[str]:
+    out = run_cmd_optional(["tmutil", "latestbackup"])
+    return out.strip() or None
+
+
+def parse_timemachine_age_seconds() -> Optional[int]:
+    latest = parse_timemachine_latest_backup()
+    if not latest:
+        return None
+
+    match = re.search(r"(\d{4}-\d{2}-\d{2}-\d{6})", latest)
+    if not match:
+        return None
+
+    try:
+        backup_time = datetime.strptime(match.group(1), "%Y-%m-%d-%H%M%S").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+    return max(0, int(datetime.now(timezone.utc).timestamp() - backup_time.timestamp()))
 
 
 def parse_agent_launchd_state() -> tuple[Optional[bool], Optional[bool]]:
@@ -171,6 +196,9 @@ def collect_metrics() -> Metrics:
         uptime_days=parse_uptime_days(),
         disk_used_percent=parse_disk_used_percent(),
         top_processes=parse_top_processes(),
+        brew_outdated_count=parse_brew_outdated_count(),
+        tm_latest_backup=parse_timemachine_latest_backup(),
+        timemachine_age_seconds=parse_timemachine_age_seconds(),
     )
 
 
@@ -188,8 +216,9 @@ def collect_mac_audit_snapshot() -> MacAuditSnapshot:
         disk_used_percent=metrics.disk_used_percent,
         battery_percent=parse_battery_percent(),
         power_source=parse_power_source(),
-        tm_latest_backup=parse_tm_latest_backup(),
-        brew_outdated_count=parse_brew_outdated_count(),
+        tm_latest_backup=metrics.tm_latest_backup,
+        timemachine_age_seconds=metrics.timemachine_age_seconds,
+        brew_outdated_count=metrics.brew_outdated_count,
         agent_launchd_loaded=launchd_loaded,
         agent_launchd_running=launchd_running,
         top_processes=metrics.top_processes,
