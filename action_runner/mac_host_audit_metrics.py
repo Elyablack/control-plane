@@ -51,12 +51,20 @@ def render_mac_host_audit_metrics(snapshot: dict[str, Any], analysis: MacHostAud
         "# HELP mac_host_audit_battery_percent Mac battery percent.",
         "# TYPE mac_host_audit_battery_percent gauge",
         f'mac_host_audit_battery_percent{{host="{host}"}} {_num(snapshot.get("battery_percent"))}',
+        "# HELP mac_host_audit_brew_outdated_count Mac Homebrew outdated package count.",
+        "# TYPE mac_host_audit_brew_outdated_count gauge",
+        f'mac_host_audit_brew_outdated_count{{host="{host}"}} {_num(snapshot.get("brew_outdated_count"))}',
+        "# HELP mac_host_audit_timemachine_age_seconds Mac Time Machine latest backup age seconds.",
+        "# TYPE mac_host_audit_timemachine_age_seconds gauge",
+        f'mac_host_audit_timemachine_age_seconds{{host="{host}"}} {_num(snapshot.get("timemachine_age_seconds"))}',
         "# HELP mac_host_audit_agent_launchd_loaded Mac memory guard launchd loaded.",
         "# TYPE mac_host_audit_agent_launchd_loaded gauge",
         f'mac_host_audit_agent_launchd_loaded{{host="{host}"}} {_bool_value(snapshot.get("agent_launchd_loaded"))}',
         "# HELP mac_host_audit_agent_launchd_running Mac memory guard launchd running.",
         "# TYPE mac_host_audit_agent_launchd_running gauge",
         f'mac_host_audit_agent_launchd_running{{host="{host}"}} {_bool_value(snapshot.get("agent_launchd_running"))}',
+        "# HELP mac_host_audit_finding_present Mac host audit finding presence by kind and severity.",
+        "# TYPE mac_host_audit_finding_present gauge",
     ]
 
     for finding in analysis.findings:
@@ -78,4 +86,3 @@ def write_mac_host_audit_metrics(
     tmp_path = path.with_suffix(path.suffix + ".tmp")
     tmp_path.write_text(render_mac_host_audit_metrics(snapshot, analysis), encoding="utf-8")
     tmp_path.replace(path)
-
