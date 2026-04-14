@@ -126,11 +126,8 @@ def analyze_mac_host_audit_snapshot(snapshot: dict[str, Any], *, log_path: str) 
             add("warning", "brew_outdated", f"{brew_outdated_count} outdated brew packages")
 
     agent_loaded = snapshot.get("agent_launchd_loaded")
-    agent_running = snapshot.get("agent_launchd_running")
     if agent_loaded is False:
-        add("warning", "agent_launchd_missing", "mac memory guard launchd job not loaded")
-    elif agent_loaded is True and agent_running is False:
-        add("warning", "agent_launchd_not_running", "mac memory guard launchd job not running")
+        add("warning", "agent_launchd_missing", "mac memory guard launchd jobs not loaded")
 
     tm_latest_backup = str(snapshot.get("tm_latest_backup", "") or "").strip()
     if not tm_latest_backup:

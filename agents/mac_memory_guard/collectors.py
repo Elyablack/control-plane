@@ -137,16 +137,28 @@ def parse_agent_launchd_state() -> tuple[Optional[bool], Optional[bool]]:
     if not out:
         return None, None
 
-    matched_lines = [
-        line
-        for line in out.splitlines()
-        if "mac_memory_guard" in line or "mac-memory-guard" in line or "control-plane" in line
-    ]
-    if not matched_lines:
-        return False, False
+    expected_labels = {
+        "com.elvira.mac-memory-worker",
+        "com.elvira.mac-memory-report",
+    }
 
-    running = any(not line.strip().startswith("-") for line in matched_lines)
-    return True, running
+    found = 0
+    running = False
+
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) < 3:
+            continue
+
+        pid, _status, label = parts[0], parts[1], parts[2]
+        if label not in expected_labels:
+            continue
+
+        found += 1
+        if pid != "-":
+            running = True
+
+    return found == len(expected_labels), running
 
 
 def collect_metrics() -> Metrics:

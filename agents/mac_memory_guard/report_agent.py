@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import argparse
 
-from agents.mac_memory_guard.cycles import run_report_cycle
-from mac_memory_guard.logging_utils import log_line
+from .cycles import run_report_cycle
+from .logging_utils import log_line
 
 
 def parse_args() -> argparse.Namespace:
