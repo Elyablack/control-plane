@@ -25,6 +25,9 @@ class Metrics:
     uptime_days: Optional[float]
     disk_used_percent: Optional[int]
     top_processes: List[ProcessInfo]
+    brew_outdated_count: Optional[int]
+    tm_latest_backup: Optional[str]
+    timemachine_age_seconds: Optional[int]
 
 
 @dataclass
@@ -45,7 +48,8 @@ class MacAuditSnapshot:
     disk_used_percent: Optional[int]
     battery_percent: Optional[int]
     power_source: str
-    tm_latest_backup: str
+    tm_latest_backup: Optional[str]
+    timemachine_age_seconds: Optional[int]
     brew_outdated_count: Optional[int]
     agent_launchd_loaded: Optional[bool]
     agent_launchd_running: Optional[bool]
