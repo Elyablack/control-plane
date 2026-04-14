@@ -12,6 +12,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--no-publish", action="store_true")
     parser.add_argument("--force-event", action="store_true")
+    parser.add_argument("--publish-audit", action="store_true")
     return parser.parse_args()
 
 
@@ -25,6 +26,7 @@ def main() -> int:
     return run_report_cycle(
         publish_enabled=not args.no_publish,
         force_event=args.force_event,
+        publish_audit=args.publish_audit,
     )
 
 

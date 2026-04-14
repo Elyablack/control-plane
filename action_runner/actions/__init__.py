@@ -5,6 +5,7 @@ from .backup import run_backup, verify_backup
 from .email import notify_email
 from .mac import enqueue_mac_action
 from .mac_file import copy_file_to_mac
+from .mac_audit import analyze_mac_host_audit, verify_mac_host_audit
 from .monitoring_stack import (
     analyze_monitoring_stack_audit,
     run_monitoring_stack_audit,
@@ -31,6 +32,8 @@ ACTION_HANDLERS = {
     "run_monitoring_stack_audit": run_monitoring_stack_audit,
     "verify_monitoring_stack_audit": verify_monitoring_stack_audit,
     "analyze_monitoring_stack_audit": analyze_monitoring_stack_audit,
+    "verify_mac_host_audit": verify_mac_host_audit,
+    "analyze_mac_host_audit": analyze_mac_host_audit,
     "generate_weekly_ops_review": generate_weekly_ops_review,
     "generate_ai_ops_brief": generate_ai_ops_brief,
     "copy_file_to_mac": copy_file_to_mac,

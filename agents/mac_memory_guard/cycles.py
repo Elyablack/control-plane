@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from .client import complete_mac_task, fetch_mac_task, send_event_to_runner
-from .collectors import collect_metrics
+from .collectors import collect_mac_audit_snapshot, collect_metrics
 from .evaluate import evaluate, normalize_app_name
 from .logging_utils import log_error, log_info
-from .publish import publish_metrics
+from .publish import publish_mac_host_audit, publish_metrics
 from .remediation import execute_mac_action
 
 
@@ -28,7 +28,7 @@ def collect_and_log():
     return metrics, evaluation
 
 
-def run_report_cycle(*, publish_enabled: bool, force_event: bool) -> int:
+def run_report_cycle(*, publish_enabled: bool, force_event: bool, publish_audit: bool = False) -> int:
     metrics, evaluation = collect_and_log()
 
     if publish_enabled:
@@ -36,6 +36,13 @@ def run_report_cycle(*, publish_enabled: bool, force_event: bool) -> int:
         log_info("publish_metrics_ok")
     else:
         log_info("publish_metrics_skipped", reason="publish disabled")
+
+    if publish_audit:
+        snapshot = collect_mac_audit_snapshot()
+        if publish_mac_host_audit(snapshot):
+            log_info("publish_mac_host_audit_ok", timestamp_utc=snapshot.timestamp_utc)
+        else:
+            log_error("publish_mac_host_audit_failed", timestamp_utc=snapshot.timestamp_utc)
 
     should_send_event = force_event or evaluation.status in {"warning", "critical"}
     if should_send_event:

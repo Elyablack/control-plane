@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import json
+import os
 import subprocess
+import urllib.error
+import urllib.request
 
 from .evaluate import normalize_app_name
 from .logging_utils import log_line
-from .models import Evaluation, Metrics
+from .models import Evaluation, MacAuditSnapshot, Metrics
 
 REMOTE_PROM_HOST = "vps"
 REMOTE_PROM_PATH = "/var/lib/node_exporter/textfile_collector/mac_memory.prom"
 MAC_HOST_LABEL = "mba"
+RUNNER_URL = os.environ.get("ACTION_RUNNER_URL", "http://vps:8088").rstrip("/")
 
 
 def run_cmd(cmd: list[str], *, check: bool = True) -> str:
@@ -60,4 +65,23 @@ def publish_metrics(metrics: Metrics, evaluation: Evaluation) -> bool:
         return True
     except subprocess.CalledProcessError as exc:
         log_line(f"publish: failed: {exc}")
+        return False
+
+
+def publish_mac_host_audit(snapshot: MacAuditSnapshot) -> bool:
+    body = json.dumps(snapshot.to_dict(), ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(
+        f"{RUNNER_URL}/events/mac-host-audit",
+        data=body,
+        method="POST",
+        headers={"Content-Type": "application/json; charset=utf-8"},
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=20) as response:
+            response.read()
+        log_line("mac_host_audit_publish: ok")
+        return True
+    except urllib.error.URLError as exc:
+        log_line(f"mac_host_audit_publish: failed: {exc}")
         return False
