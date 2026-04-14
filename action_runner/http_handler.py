@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 
 from .events import normalize_alertmanager_payload
 from .executor import execute_action, now_utc
+from .mac_host_audit import save_mac_host_audit_snapshot
 from .metrics import PROMETHEUS_CONTENT_TYPE, render_metrics
 from .runtime import LOADED_RULES
 from .signal_service import process_signals
@@ -238,6 +239,22 @@ class ActionRunnerHandler(BaseHTTPRequestHandler):
                 self._json_response(HTTPStatus.OK, response)
                 return
 
+            except Exception as exc:
+                self._json_response(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+                return
+
+        if path == "/events/mac-host-audit":
+            try:
+                data = self._read_json()
+                log_path = save_mac_host_audit_snapshot(data)
+                self._json_response(
+                    HTTPStatus.OK,
+                    {
+                        "status": "ok",
+                        "log_path": log_path,
+                    },
+                )
+                return
             except Exception as exc:
                 self._json_response(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
                 return

@@ -5,12 +5,21 @@ import subprocess
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from .models import Metrics, ProcessInfo
+from .models import MacAuditSnapshot, Metrics, ProcessInfo
+
+MAC_HOST_LABEL = "mba"
 
 
 def run_cmd(cmd: List[str], *, check: bool = True) -> str:
     result = subprocess.run(cmd, capture_output=True, text=True, check=check)
     return result.stdout.strip()
+
+
+def run_cmd_optional(cmd: List[str]) -> str:
+    try:
+        return run_cmd(cmd, check=True)
+    except Exception:
+        return ""
 
 
 def parse_memory_pressure() -> Optional[float]:
@@ -86,17 +95,70 @@ def parse_top_processes(limit: int = 5) -> List[ProcessInfo]:
         except ValueError:
             continue
 
-        processes.append(
-            ProcessInfo(
-                pid=pid,
-                rss_kb=rss_kb,
-                mem_percent=mem_percent,
-                command=command,
-            )
-        )
+        processes.append(ProcessInfo(pid=pid, rss_kb=rss_kb, mem_percent=mem_percent, command=command))
 
     processes.sort(key=lambda item: item.rss_kb, reverse=True)
     return processes[:limit]
+
+
+def parse_battery_percent() -> Optional[int]:
+    out = run_cmd_optional(["pmset", "-g", "batt"])
+    match = re.search(r"(\d+)%", out)
+    return int(match.group(1)) if match else None
+
+
+def parse_power_source() -> str:
+    out = run_cmd_optional(["pmset", "-g", "batt"])
+    first_line = out.splitlines()[0].strip() if out.splitlines() else ""
+    if "AC Power" in first_line:
+        return "ac"
+    if "Battery Power" in first_line:
+        return "battery"
+    return "unknown"
+
+
+def parse_tm_latest_backup() -> str:
+    out = run_cmd_optional(["tmutil", "latestbackup"])
+    return out.strip() if out else ""
+
+
+def parse_brew_outdated_count() -> Optional[int]:
+    if not run_cmd_optional(["/usr/bin/which", "brew"]):
+        return None
+
+    out = run_cmd_optional(["brew", "outdated", "--quiet"])
+    if not out:
+        return 0
+    return len([line for line in out.splitlines() if line.strip()])
+
+
+def parse_agent_launchd_state() -> tuple[Optional[bool], Optional[bool]]:
+    out = run_cmd_optional(["launchctl", "list"])
+    if not out:
+        return None, None
+
+    expected_labels = {
+        "com.elvira.mac-memory-worker",
+        "com.elvira.mac-memory-report",
+    }
+
+    found = 0
+    running = False
+
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) < 3:
+            continue
+
+        pid, _status, label = parts[0], parts[1], parts[2]
+        if label not in expected_labels:
+            continue
+
+        found += 1
+        if pid != "-":
+            running = True
+
+    return found == len(expected_labels), running
 
 
 def collect_metrics() -> Metrics:
@@ -111,3 +173,24 @@ def collect_metrics() -> Metrics:
         top_processes=parse_top_processes(),
     )
 
+
+def collect_mac_audit_snapshot() -> MacAuditSnapshot:
+    metrics = collect_metrics()
+    launchd_loaded, launchd_running = parse_agent_launchd_state()
+
+    return MacAuditSnapshot(
+        host=MAC_HOST_LABEL,
+        timestamp_utc=metrics.timestamp_utc,
+        timestamp_unix=metrics.timestamp_unix,
+        memory_free_percent=metrics.memory_free_percent,
+        swap_used_mb=metrics.swap_used_mb,
+        uptime_days=metrics.uptime_days,
+        disk_used_percent=metrics.disk_used_percent,
+        battery_percent=parse_battery_percent(),
+        power_source=parse_power_source(),
+        tm_latest_backup=parse_tm_latest_backup(),
+        brew_outdated_count=parse_brew_outdated_count(),
+        agent_launchd_loaded=launchd_loaded,
+        agent_launchd_running=launchd_running,
+        top_processes=metrics.top_processes,
+    )

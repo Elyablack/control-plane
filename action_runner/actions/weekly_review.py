@@ -50,6 +50,8 @@ INCLUDED_OPERATIONAL_ACTIONS = {
     "run_monitoring_stack_audit",
     "verify_monitoring_stack_audit",
     "analyze_monitoring_stack_audit",
+    "verify_mac_host_audit",
+    "analyze_mac_host_audit",
     "generate_ai_ops_brief",
     "notify_tg",
     "enqueue_mac_action",
@@ -71,6 +73,7 @@ BRIEF_SOURCES_WITH_AUDIT_DOMAINS = {
     "admin_host_audit",
     "vps_host_audit",
     "monitoring_stack_audit",
+    "mac_host_audit",
 }
 RECENT_FAILURE_LOOKBACK_HOURS = 24
 
@@ -95,6 +98,13 @@ AUDIT_DOMAIN_CONFIGS: tuple[dict[str, Any], ...] = (
         "clean_legacy": False,
         "limit": 30,
         "title": "Monitoring stack audit",
+    },
+    {
+        "name": "mac_host_audit",
+        "action": "analyze_mac_host_audit",
+        "clean_legacy": False,
+        "limit": 30,
+        "title": "Mac host audit",
     },
 )
 
@@ -431,26 +441,23 @@ def _filter_recent_ops_briefs(
 
         domain = audit_domains.get(source)
         if not isinstance(domain, dict):
-            filtered.append(item)
             continue
 
         rollup = domain.get("rollup", {})
         if not isinstance(rollup, dict):
-            filtered.append(item)
             continue
 
         latest_level = str(rollup.get("latest_level", "") or "")
-        if latest_level in {"warning", "critical"}:
-            filtered.append(item)
-            continue
-
-        brief_started = _parse_utc_text(str(item.get("started_at", "") or ""))
         latest_started = _parse_utc_text(str(rollup.get("latest_started_at", "") or ""))
-        if brief_started is None or latest_started is None:
-            continue
+        brief_started = _parse_utc_text(str(item.get("started_at", "") or ""))
 
-        if brief_started >= latest_started:
-            filtered.append(item)
+        if latest_level == "ok":
+            if brief_started is None or latest_started is None:
+                continue
+            if brief_started < latest_started:
+                continue
+
+        filtered.append(item)
 
     return filtered
 
@@ -494,15 +501,16 @@ def _postprocess_weekly_review(summary: dict[str, Any], review: dict[str, Any], 
     )
 
     current_week_status = str(result.get("week_status", "") or "")
-    if all_latest_ok and current_week_status == "risky" and recent_failure_count == 0:
+    if all_latest_ok and current_week_status == "risky":
         result["week_status"] = "watch"
 
     executive_summary = str(result.get("executive_summary", "") or "")
     if all_latest_ok and executive_summary:
         recovered_note = (
-            " Current posture across admin_host_audit, vps_host_audit, and monitoring_stack_audit "
-            "is now ok; remaining risk is mainly historical instability and recurrence prevention."
-        )
+            " Current posture across admin_host_audit, vps_host_audit, "
+            "monitoring_stack_audit, and mac_host_audit is now ok; "
+            "remaining risk is mainly historical instability and recurrence prevention."
+        )        
         if recovered_note.strip() not in executive_summary:
             result["executive_summary"] = executive_summary.rstrip() + recovered_note
 
@@ -805,6 +813,7 @@ def _build_weekly_summary(*, db_path: str, since_utc: str, until_utc: str) -> di
             "admin_audit_reviews": audit_domains["admin_host_audit"]["reviews"],
             "vps_audit_reviews": audit_domains["vps_host_audit"]["reviews"],
             "monitoring_stack_audit_reviews": audit_domains["monitoring_stack_audit"]["reviews"],
+            "mac_host_audit_reviews": audit_domains["mac_host_audit"]["reviews"],
         }
         return summary
     finally:
@@ -991,7 +1000,7 @@ def _render_audit_domains_markdown(summary: dict[str, Any]) -> list[str]:
     lines.append("## Audit domains")
     lines.append("")
 
-    ordered_names = ("admin_host_audit", "vps_host_audit", "monitoring_stack_audit")
+    ordered_names = ("admin_host_audit", "vps_host_audit", "monitoring_stack_audit", "mac_host_audit")
     for name in ordered_names:
         domain = audit_domains.get(name)
         if not isinstance(domain, dict):

@@ -334,3 +334,60 @@ rules:
             severity: "{{ analysis_level }}"
             status: firing
     cooldown_seconds: 3600
+
+  - name: mac_host_audit_daily
+    enabled: true
+    match:
+      alertname: MacHostAuditDaily
+      status: firing
+      severity: info
+    action:
+      type: chain
+      steps:
+        - name: verify_mac_host_audit
+          payload:
+            audit_dir: /srv/control-plane/state/mac-host-audit
+            max_age_seconds: 1800
+
+        - name: analyze_mac_host_audit
+          payload:
+            audit_dir: /srv/control-plane/state/mac-host-audit
+            metrics_path: /var/lib/node_exporter/textfile_collector/mac_host_audit.prom
+
+        - name: generate_ai_ops_brief
+          when:
+            analysis_level_in: ["warning", "critical"]
+          payload:
+            source: mac_host_audit
+            analysis_level: "{{ analysis_level }}"
+            analysis_summary: "{{ analysis_summary }}"
+            analysis_findings_count: "{{ analysis_findings_count }}"
+            analysis_log_path: "{{ analysis_log_path }}"
+            facts:
+              host: mba
+              metrics_path: "{{ metrics_path }}"
+
+        - name: copy_file_to_mac
+          when:
+            analysis_level_in: ["warning", "critical"]
+          payload:
+            source_path: "{{ markdown_path }}"
+            target_dir: "~/Documents/control-plane-reviews/briefs"
+
+        - name: notify_tg
+          when:
+            analysis_level_in: ["warning", "critical"]
+          payload:
+            format: message
+            title: "[MAC][{{ analysis_level|upper }}] audit brief"
+            facts:
+              - key: brief
+                value: "{{ brief_status }}"
+              - key: file
+                value: "{{ markdown_path }}"
+            body: "{{ analysis_summary }}"
+            source: action-runner
+            event: mac_host_audit_brief
+            severity: "{{ analysis_level }}"
+            status: firing
+    cooldown_seconds: 3600

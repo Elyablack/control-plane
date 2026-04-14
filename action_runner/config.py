@@ -40,6 +40,8 @@ ALLOWED_ACTIONS = {
     "run_monitoring_stack_audit",
     "verify_monitoring_stack_audit",
     "analyze_monitoring_stack_audit",
+    "verify_mac_host_audit",
+    "analyze_mac_host_audit",
     "generate_weekly_ops_review",
     "generate_ai_ops_brief",
     "copy_file_to_mac",
