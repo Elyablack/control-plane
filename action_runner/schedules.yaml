@@ -13,25 +13,11 @@ schedules:
       summary: scheduled daily admin host audit
       description: internal scheduled trigger for admin host audit workflow
 
-  - name: weekly_ops_review
-    enabled: true
-    weekday: 6
-    hour: 4
-    minute: 15
-    signal:
-      alertname: WeeklyOpsReview
-      status: firing
-      severity: info
-      instance: vps
-      job: scheduler
-      summary: scheduled weekly ops review
-      description: internal scheduled trigger for weekly ops review workflow
-
   - name: vps_host_audit_daily
     enabled: true
     daily: true
     hour: 4
-    minute: 30
+    minute: 15
     signal:
       alertname: VpsHostAuditDaily
       status: firing
@@ -45,7 +31,7 @@ schedules:
     enabled: true
     daily: true
     hour: 4
-    minute: 45
+    minute: 30
     signal:
       alertname: MonitoringStackAuditDaily
       status: firing
@@ -54,3 +40,31 @@ schedules:
       job: scheduler
       summary: scheduled daily monitoring stack audit
       description: internal scheduled trigger for monitoring stack audit workflow
+
+  - name: mac_host_audit_daily
+    enabled: true
+    daily: true
+    hour: 4
+    minute: 45
+    signal:
+      alertname: MacHostAuditDaily
+      status: firing
+      severity: info
+      instance: mba
+      job: scheduler
+      summary: scheduled mac host audit
+      description: daily mac host audit workflow
+
+  - name: weekly_ops_review
+    enabled: true
+    weekday: 6
+    hour: 5
+    minute: 0
+    signal:
+      alertname: WeeklyOpsReview
+      status: firing
+      severity: info
+      instance: vps
+      job: scheduler
+      summary: scheduled weekly ops review
+      description: internal scheduled trigger for weekly ops review workflow
