@@ -1,3 +1,4 @@
+# agents/mac_memory_guard/publish.py
 from __future__ import annotations
 
 import json
@@ -21,11 +22,21 @@ def run_cmd(cmd: list[str], *, check: bool = True) -> str:
     return result.stdout.strip()
 
 
+def _num(value: object) -> str:
+    if value is None or value == "":
+        return "NaN"
+    try:
+        return str(float(value))
+    except (TypeError, ValueError):
+        return "NaN"
+
+
 def publish_metrics(metrics: Metrics, evaluation: Evaluation) -> bool:
     status_value = {"ok": 0, "warning": 1, "critical": 2}.get(evaluation.status, 3)
     top = metrics.top_processes[0] if metrics.top_processes else None
     top_name = normalize_app_name(top.command) if top else "none"
     top_rss_mb = top.rss_mb if top else 0.0
+    power_source = metrics.power_source if metrics.power_source in {"ac", "battery", "unknown"} else "unknown"
 
     prom_lines = [
         "# HELP mac_memory_status Mac memory status (0=ok, 1=warning, 2=critical).",
@@ -33,16 +44,24 @@ def publish_metrics(metrics: Metrics, evaluation: Evaluation) -> bool:
         f'mac_memory_status{{host="{MAC_HOST_LABEL}"}} {status_value}',
         "# HELP mac_memory_free_percent System-wide memory free percentage from memory_pressure.",
         "# TYPE mac_memory_free_percent gauge",
-        f'mac_memory_free_percent{{host="{MAC_HOST_LABEL}"}} {metrics.memory_free_percent if metrics.memory_free_percent is not None else "NaN"}',
+        f'mac_memory_free_percent{{host="{MAC_HOST_LABEL}"}} {_num(metrics.memory_free_percent)}',
         "# HELP mac_swap_used_mb Swap used in megabytes.",
         "# TYPE mac_swap_used_mb gauge",
-        f'mac_swap_used_mb{{host="{MAC_HOST_LABEL}"}} {metrics.swap_used_mb if metrics.swap_used_mb is not None else "NaN"}',
+        f'mac_swap_used_mb{{host="{MAC_HOST_LABEL}"}} {_num(metrics.swap_used_mb)}',
         "# HELP mac_uptime_days Mac uptime in days.",
         "# TYPE mac_uptime_days gauge",
-        f'mac_uptime_days{{host="{MAC_HOST_LABEL}"}} {metrics.uptime_days if metrics.uptime_days is not None else "NaN"}',
+        f'mac_uptime_days{{host="{MAC_HOST_LABEL}"}} {_num(metrics.uptime_days)}',
         "# HELP mac_disk_used_percent Root filesystem used percent.",
         "# TYPE mac_disk_used_percent gauge",
-        f'mac_disk_used_percent{{host="{MAC_HOST_LABEL}"}} {metrics.disk_used_percent if metrics.disk_used_percent is not None else "NaN"}',
+        f'mac_disk_used_percent{{host="{MAC_HOST_LABEL}"}} {_num(metrics.disk_used_percent)}',
+        "# HELP mac_battery_percent Mac battery percent.",
+        "# TYPE mac_battery_percent gauge",
+        f'mac_battery_percent{{host="{MAC_HOST_LABEL}"}} {_num(metrics.battery_percent)}',
+        "# HELP mac_power_source Mac current power source (1=current source).",
+        "# TYPE mac_power_source gauge",
+        f'mac_power_source{{host="{MAC_HOST_LABEL}",source="ac"}} {1 if power_source == "ac" else 0}',
+        f'mac_power_source{{host="{MAC_HOST_LABEL}",source="battery"}} {1 if power_source == "battery" else 0}',
+        f'mac_power_source{{host="{MAC_HOST_LABEL}",source="unknown"}} {1 if power_source == "unknown" else 0}',
         "# HELP mac_top_process_rss_mb Top process RSS in megabytes.",
         "# TYPE mac_top_process_rss_mb gauge",
         f'mac_top_process_rss_mb{{host="{MAC_HOST_LABEL}",process="{top_name}"}} {top_rss_mb:.2f}',

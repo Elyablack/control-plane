@@ -24,6 +24,8 @@ class Metrics:
     swap_used_mb: Optional[float]
     uptime_days: Optional[float]
     disk_used_percent: Optional[int]
+    battery_percent: Optional[int]
+    power_source: str
     top_processes: List[ProcessInfo]
     brew_outdated_count: Optional[int]
     tm_latest_backup: Optional[str]
